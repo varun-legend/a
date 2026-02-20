@@ -25,7 +25,7 @@ jobs:
       RELEASE_KEY_ALIAS:      ${{ secrets.RELEASE_KEY_ALIAS }}
       RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
       RELEASE_KEY_PASSWORD:   ${{ secrets.RELEASE_KEY_PASSWORD }}
-      PAT:                    ${{ secrets.PAT2 }}
+      PAT:                    ${{ secrets.PAT }}
     steps:
       - name: 🧾 Checkout this repo (broker) metadata
         uses: actions/checkout@v4
@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ env.SOURCE_REPO }}
-          token: ${{ secrets.PAT2 }}
+          token: ${{ secrets.PAT }}
           fetch-depth: 0
           path: source
 
@@ -146,6 +146,28 @@ jobs:
             sudo apt install -y gh
           fi
 
+      - name: 🔐 Validate release token access (fail-fast)
+        if: ${{ github.event_name != 'pull_request' && steps.find-apk.outputs.apk_path != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+          SOURCE_REPO: ${{ env.SOURCE_REPO }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "ERROR: PAT secret is missing or empty; cannot authenticate gh CLI for release upload."
+            exit 1
+          fi
+          if ! gh auth status >/tmp/gh-auth-status.log 2>&1; then
+            echo "ERROR: gh authentication failed with PAT. Details:"
+            cat /tmp/gh-auth-status.log
+            exit 1
+          fi
+          if ! gh api "repos/${SOURCE_REPO}" >/tmp/gh-api-access.log 2>&1; then
+            echo "ERROR: PAT cannot access repo '${SOURCE_REPO}'. Ensure PAT has repo/contents:write scope and repo access."
+            cat /tmp/gh-api-access.log
+            exit 1
+          fi
+
       - name: 📝 Prepare version outputs (NO PUSH — intentionally)
         id: commit-bump
         if: always()
@@ -168,7 +190,7 @@ jobs:
         id: create_release
         if: ${{ github.event_name != 'pull_request' && steps.find-apk.outputs.apk_path != '' }}
         env:
-          GH_TOKEN: ${{ secrets.PAT2 }}
+          GH_TOKEN: ${{ secrets.PAT }}
           SOURCE_REPO: ${{ env.SOURCE_REPO }}
         run: |
           set -euo pipefail
