@@ -5,8 +5,14 @@ concurrency:
   cancel-in-progress: true
 
 on:
+  push:
+    branches:
+      - main
+
   repository_dispatch:
-    types: [echo]
+    types:
+      - echo
+
   workflow_dispatch:
     inputs:
       bump:
