@@ -139,7 +139,12 @@ jobs:
           echo "apk_name=$TARGET_NAME" >> "$GITHUB_OUTPUT"
           echo "apk_path=$TARGET_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: ⚙️ Ensure gh CLI
+      - name: 🔍 Print entire build tree
+      run: |
+       echo "------ FULL SOURCE TREE ------"
+       find source -type f | sort
+       
+       - name: ⚙️ Ensure gh CLI
         run: |
           set -euo pipefail
           if ! command -v gh >/dev/null 2>&1; then
