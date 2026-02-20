@@ -63,24 +63,26 @@ jobs:
       - name: 📥 Ensure gradlew executable
         run: chmod +x ./source/gradlew
 
-      - name: 🔐 Restore keystore + append signing props (into source)
+      - name: 🔐 Restore keystore + append signing props (into source) — optional
         run: |
           set -euo pipefail
-          if [ -z "${{ secrets.RELEASE_STORE_FILE }}" ]; then
-            exit 1
+          # Only restore keystore if the secret exists (keep it optional)
+          if [ -n "${{ secrets.RELEASE_STORE_FILE }}" ]; then
+            SOURCE_REPO="${SOURCE_REPO:-${{ env.SOURCE_REPO }}}"
+            KEY_BASENAME="varun-release-key-$(echo "$SOURCE_REPO" | tr '/' '-')"
+            printf '%s' "${{ secrets.RELEASE_STORE_FILE }}" | base64 --decode > "$GITHUB_WORKSPACE/source/${KEY_BASENAME}.p12"
+            chmod 600 "$GITHUB_WORKSPACE/source/${KEY_BASENAME}.p12"
+            if [ -f source/gradle.properties ]; then
+              grep -vE '^(RELEASE_STORE_FILE|RELEASE_KEY_ALIAS|RELEASE_STORE_PASSWORD|RELEASE_KEY_PASSWORD)=' source/gradle.properties > source/gradle.properties.tmp || true
+              mv source/gradle.properties.tmp source/gradle.properties || true
+            fi
+            printf 'RELEASE_STORE_FILE=%s.p12\n' "${KEY_BASENAME}" >> source/gradle.properties
+            printf 'RELEASE_KEY_ALIAS=%s\n' "${{ secrets.RELEASE_KEY_ALIAS }}" >> source/gradle.properties
+            printf 'RELEASE_STORE_PASSWORD=%s\n' "${{ secrets.RELEASE_STORE_PASSWORD }}" >> source/gradle.properties
+            printf 'RELEASE_KEY_PASSWORD=%s\n' "${{ secrets.RELEASE_KEY_PASSWORD }}" >> source/gradle.properties
+          else
+            echo "No RELEASE_STORE_FILE secret set — skipping keystore restore."
           fi
-          SOURCE_REPO="${SOURCE_REPO:-${{ env.SOURCE_REPO }}}"
-          KEY_BASENAME="varun-release-key-$(echo "$SOURCE_REPO" | tr '/' '-')"
-          printf '%s' "${{ secrets.RELEASE_STORE_FILE }}" | base64 --decode > "$GITHUB_WORKSPACE/source/${KEY_BASENAME}.p12"
-          chmod 600 "$GITHUB_WORKSPACE/source/${KEY_BASENAME}.p12"
-          if [ -f source/gradle.properties ]; then
-            grep -vE '^(RELEASE_STORE_FILE|RELEASE_KEY_ALIAS|RELEASE_STORE_PASSWORD|RELEASE_KEY_PASSWORD)=' source/gradle.properties > source/gradle.properties.tmp || true
-            mv source/gradle.properties.tmp source/gradle.properties || true
-          fi
-          printf 'RELEASE_STORE_FILE=%s.p12\n' "${KEY_BASENAME}" >> source/gradle.properties
-          printf 'RELEASE_KEY_ALIAS=%s\n' "${{ secrets.RELEASE_KEY_ALIAS }}" >> source/gradle.properties
-          printf 'RELEASE_STORE_PASSWORD=%s\n' "${{ secrets.RELEASE_STORE_PASSWORD }}" >> source/gradle.properties
-          printf 'RELEASE_KEY_PASSWORD=%s\n' "${{ secrets.RELEASE_KEY_PASSWORD }}" >> source/gradle.properties
 
       - name: 🔍 Bump version (in-place, no reclone) — compute & write version.properties
         id: get-version
@@ -140,16 +142,22 @@ jobs:
           echo "apk_path=$TARGET_PATH" >> "$GITHUB_OUTPUT"
 
       - name: 🔍 Print entire build tree
-      run: |
-       echo "------ FULL SOURCE TREE ------"
-       find source -type f | sort
-       
-       - name: ⚙️ Ensure gh CLI
+        run: |
+          echo "------ FULL SOURCE TREE ------"
+          find source -type f | sort
+
+      - name: ⚙️ Ensure gh CLI
         run: |
           set -euo pipefail
           if ! command -v gh >/dev/null 2>&1; then
             sudo apt update -y
             sudo apt install -y gh
+          fi
+          # Non-interactive login so later steps can use gh
+          if [ -n "${{ secrets.PAT }}" ]; then
+            printf '%s' "${{ secrets.PAT }}" | gh auth login --with-token
+          else
+            echo "WARNING: PAT secret is empty — gh CLI won't be authenticated."
           fi
 
       - name: 🔐 Validate release token access (fail-fast)
@@ -163,6 +171,7 @@ jobs:
             echo "ERROR: PAT secret is missing or empty; cannot authenticate gh CLI for release upload."
             exit 1
           fi
+          # Verify gh auth status (will use the login we did above)
           if ! gh auth status >/tmp/gh-auth-status.log 2>&1; then
             echo "ERROR: gh authentication failed with PAT. Details:"
             cat /tmp/gh-auth-status.log
@@ -200,9 +209,10 @@ jobs:
           SOURCE_REPO: ${{ env.SOURCE_REPO }}
         run: |
           set -euo pipefail
-          TAG="v${{ steps.commit-bump.outputs.version_name }}"
+          # Prefer the version from get-version which is computed earlier
+          TAG="v${{ steps.get-version.outputs.version_name }}"
           TITLE="📦 Release ${TAG}"
-          BODY="Release ${TAG} (code ${{ steps.commit-bump.outputs.version_code }})"
+          BODY="Release ${TAG} (code ${{ steps.get-version.outputs.version_code }})"
           APK_PATH="${{ steps.find-apk.outputs.apk_path }}"
           if [ -z "$APK_PATH" ] || [ ! -f "$APK_PATH" ]; then
             echo "ERROR: Release artifact path is missing or invalid: '$APK_PATH'."
