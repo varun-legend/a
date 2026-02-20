@@ -124,7 +124,7 @@ jobs:
         id: find-apk
         run: |
           set -euo pipefail
-          ARTIFACT=$(find source/app/build/outputs -type f \( -name "*release*.apk" -o -name "*.apk" -o -name "*.aab" \) | head -n 1 || true)
+          ARTIFACT=$(find source/app/build/outputs -type f \( -name "*release*.apk" -o -name "*.aab" -o -name "*.apk" \) | head -n 1 || true)
           if [ -z "$ARTIFACT" ]; then
             echo "apk_name=" >> "$GITHUB_OUTPUT"
             echo "apk_path=" >> "$GITHUB_OUTPUT"
@@ -166,6 +166,7 @@ jobs:
 
       - name: 🧾 Create or upload GitHub Release in source repo & upload APK (ALWAYS upload if artifact exists)
         id: create_release
+        if: ${{ github.event_name != 'pull_request' && steps.find-apk.outputs.apk_path != '' }}
         env:
           GH_TOKEN: ${{ secrets.PAT2 }}
           SOURCE_REPO: ${{ env.SOURCE_REPO }}
@@ -177,7 +178,7 @@ jobs:
           APK_PATH="${{ steps.find-apk.outputs.apk_path }}"
           if [ -z "$APK_PATH" ] || [ ! -f "$APK_PATH" ]; then
             echo "No APK/AAB artifact found at: $APK_PATH"
-            exit 1
+            exit 0
           fi
           if gh release view "$TAG" --repo "${SOURCE_REPO}" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK_PATH" --repo "${SOURCE_REPO}" --clobber
