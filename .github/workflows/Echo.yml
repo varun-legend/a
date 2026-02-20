@@ -125,8 +125,9 @@ jobs:
         run: |
           set -euo pipefail
           cd source
-          ./gradlew clean assembleRelease --no-daemon --parallel --configure-on-demand -Dorg.gradle.caching=true -Dorg.gradle.parallel=true -Dorg.gradle.workers.max=4
-          echo "built=release" >> "$GITHUB_OUTPUT"
+          ./gradlew clean assembleRelease --no-daemon --info
+          echo "---- OUTPUTS ----"
+          find app/build -type f -name "*.apk"
 
       - name: 🔎 Find release artifact and rename
         id: find-apk
