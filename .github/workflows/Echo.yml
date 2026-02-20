@@ -165,23 +165,11 @@ jobs:
           echo "version_name=${VNAME}" >> "$GITHUB_OUTPUT"
           echo "version_code=${VCODE}" >> "$GITHUB_OUTPUT"
 
-      - name: 🧾 Create or upload GitHub Release in source repo & upload APK
-        if: >
-          (
-            github.event_name != 'pull_request' &&
-            steps.find-apk.outputs.apk_path != ''
-          ) || (
-            github.event_name == 'pull_request' &&
-            github.event.pull_request.head.repo.full_name == github.repository &&
-            steps.find-apk.outputs.apk_path != ''
-          )
+      - name: 🧾 Create or upload GitHub Release in source repo & upload APK (ALWAYS upload if artifact exists)
         id: create_release
         env:
           GH_TOKEN: ${{ secrets.PAT2 }}
           SOURCE_REPO: ${{ env.SOURCE_REPO }}
-          EVENT_NAME: ${{ github.event_name }}
-          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           TAG="v${{ steps.commit-bump.outputs.version_name }}"
@@ -189,18 +177,11 @@ jobs:
           BODY="Release ${TAG} (code ${{ steps.commit-bump.outputs.version_code }})"
           APK_PATH="${{ steps.find-apk.outputs.apk_path }}"
           if [ -z "$APK_PATH" ] || [ ! -f "$APK_PATH" ]; then
+            echo "No APK/AAB artifact found at: $APK_PATH"
             exit 1
           fi
-          if [ "${EVENT_NAME}" = "pull_request" ] && [ "${PR_HEAD_REPO}" = "${REPO}" ]; then
-            if gh release view "$TAG" --repo "${SOURCE_REPO}" >/dev/null 2>&1; then
-              gh release upload "$TAG" "$APK_PATH" --repo "${SOURCE_REPO}" --clobber
-            else
-              gh release create "$TAG" "$APK_PATH" --repo "${SOURCE_REPO}" -t "${TITLE}" -n "${BODY}" --draft
-            fi
+          if gh release view "$TAG" --repo "${SOURCE_REPO}" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_PATH" --repo "${SOURCE_REPO}" --clobber
           else
-            if gh release view "$TAG" --repo "${SOURCE_REPO}" >/dev/null 2>&1; then
-              gh release upload "$TAG" "$APK_PATH" --repo "${SOURCE_REPO}" --clobber
-            else
-              gh release create "$TAG" "$APK_PATH" --repo "${SOURCE_REPO}" -t "${TITLE}" -n "${BODY}"
-            fi
+            gh release create "$TAG" "$APK_PATH" --repo "${SOURCE_REPO}" -t "${TITLE}" -n "${BODY}"
           fi
