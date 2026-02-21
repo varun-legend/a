@@ -129,7 +129,7 @@ jobs:
             echo "no version change to commit"
             exit 0
           fi
-          git commit -m "ci: bump version to ${NEW_VERSION} [skip ci]"
+          git commit -m "ci: bump version to ${NEW_VERSION} [skip zonic]"
           # ensure push uses PAT (keeps token out of logs)
           git remote set-url origin https://x-access-token:${PAT}@github.com/${SOURCE_REPO}.git
           git push origin HEAD:${BRANCH}
