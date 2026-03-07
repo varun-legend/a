@@ -122,12 +122,12 @@ jobs:
           git commit -m "ci: bump version to v${{ steps.get-version.outputs.version_name }} [skip zonic]" || true
           git push "https://x-access-token:${{ secrets.PAT }}@github.com/${{ env.SOURCE_REPO }}.git" HEAD:${{ github.ref_name }} || true
 
-      - name: 🧹 Clean & Build Release
+      - name: Build Release
         id: build
         run: |
           set -euo pipefail
           cd source
-          ./gradlew clean assembleRelease --no-daemon --parallel --configure-on-demand -Dorg.gradle.caching=true -Dorg.gradle.parallel=true -Dorg.gradle.workers.max=4
+          ./gradlew assembleRelease --no-daemon --parallel --configure-on-demand -Dorg.gradle.caching=true -Dorg.gradle.parallel=true -Dorg.gradle.workers.max=4
           echo "built=release" >> "$GITHUB_OUTPUT"
 
       - name: 🔎 Find Release APK and rename to exact name (inside source)
