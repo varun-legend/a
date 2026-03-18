@@ -32,7 +32,7 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: 📁 Checkout source repo (varun-legend/Zonic)
+      - name: 📁 Checkout source repo (varun-legend/Fucus)
         uses: actions/checkout@v4
         with:
           repository: ${{ env.SOURCE_REPO }}
