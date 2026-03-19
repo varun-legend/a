@@ -28,12 +28,12 @@ jobs:
       PAT:                    ${{ secrets.PAT }}
     steps:
       - name: 🧾 Checkout this repo (broker) metadata
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
       - name: 📁 Checkout source repo (varun-legend/Zonic)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ env.SOURCE_REPO }}
           token: ${{ secrets.PAT }}
@@ -41,7 +41,7 @@ jobs:
           path: source
 
       - name: ⚡ Cache Gradle (source)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.gradle/caches
@@ -56,7 +56,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
       - name: 📥 Ensure gradlew executable
         run: chmod +x ./source/gradlew
