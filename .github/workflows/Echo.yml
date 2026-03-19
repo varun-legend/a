@@ -29,12 +29,12 @@ jobs:
 
     steps:
       - name: 🧾 Checkout broker repo (this workflow)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
       - name: 📁 Checkout source repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ env.SOURCE_REPO }}
           token: ${{ secrets.PAT }}
@@ -42,7 +42,7 @@ jobs:
           path: source
 
       - name: ⚡ Cache Gradle (source)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.gradle/caches
