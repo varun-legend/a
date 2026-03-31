@@ -34,7 +34,7 @@ jobs:
         with:
           repository: ${{ env.SOURCE_REPO }}
           token: ${{ secrets.PAT }}
-          fetch-depth: 1
+          fetch-depth: 0
           path: source
 
       - name: 🔧 Setup Temurin JDK 17
@@ -42,37 +42,46 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
+
+      - name: ⚡ Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v5
 
       - name: 📥 Ensure gradlew executable
         run: chmod +x ./source/gradlew
 
-      - name: 🔐 Restore keystore, bump version, write props
-        id: version
-        env:
-          BUMP: ${{ github.event.inputs.bump }}
+      - name: 🔐 Restore keystore + signing props
         run: |
           set -euo pipefail
-          cd source
 
           if [ -z "${{ secrets.RELEASE_STORE_FILE }}" ]; then
             echo "ERROR: RELEASE_STORE_FILE secret not set"
             exit 1
           fi
 
+          cd source
+
           KEY_BASENAME="varun-release-key-$(echo "${SOURCE_REPO}" | tr '/' '-')"
           printf '%s' "${{ secrets.RELEASE_STORE_FILE }}" | base64 --decode > "${KEY_BASENAME}.p12"
           chmod 600 "${KEY_BASENAME}.p12"
 
-          touch gradle.properties
-          grep -vE '^(RELEASE_STORE_FILE|RELEASE_KEY_ALIAS|RELEASE_STORE_PASSWORD|RELEASE_KEY_PASSWORD)=' gradle.properties > gradle.properties.tmp || true
-          mv gradle.properties.tmp gradle.properties
+          if [ -f gradle.properties ]; then
+            grep -vE '^(RELEASE_STORE_FILE|RELEASE_KEY_ALIAS|RELEASE_STORE_PASSWORD|RELEASE_KEY_PASSWORD)=' gradle.properties > gradle.properties.tmp || true
+            mv gradle.properties.tmp gradle.properties || true
+          fi
 
           printf 'RELEASE_STORE_FILE=%s.p12\n' "${KEY_BASENAME}" >> gradle.properties
           printf 'RELEASE_KEY_ALIAS=%s\n' "${{ secrets.RELEASE_KEY_ALIAS }}" >> gradle.properties
           printf 'RELEASE_STORE_PASSWORD=%s\n' "${{ secrets.RELEASE_STORE_PASSWORD }}" >> gradle.properties
           printf 'RELEASE_KEY_PASSWORD=%s\n' "${{ secrets.RELEASE_KEY_PASSWORD }}" >> gradle.properties
 
+      - name: 🔍 Bump version and write version.properties
+        id: version
+        env:
+          BUMP: ${{ github.event.inputs.bump }}
+        run: |
+          set -euo pipefail
+
+          cd source
           BUMP="${BUMP:-patch}"
 
           if [ ! -f version.properties ]; then
@@ -116,23 +125,13 @@ jobs:
 
           echo "version_name=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "version_code=$NEW_CODE" >> "$GITHUB_OUTPUT"
-          echo "key_basename=$KEY_BASENAME" >> "$GITHUB_OUTPUT"
 
       - name: 🧱 Build Release
         id: build
         run: |
           set -euo pipefail
           cd source
-          ./gradlew :app:assembleRelease \
-            --no-daemon \
-            --parallel \
-            --build-cache \
-            --configuration-cache \
-            -Dorg.gradle.caching=true \
-            -Dorg.gradle.parallel=true \
-            -Dkotlin.incremental=true \
-            -Dkotlin.incremental.useClasspathSnapshot=true \
-            -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
+          ./gradlew assembleRelease --no-daemon --configuration-cache --build-cache
           echo "built=release" >> "$GITHUB_OUTPUT"
 
       - name: 🔎 Find Release APK
@@ -140,12 +139,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          APK=$(find source/app/build/outputs -type f -name "*release*.apk" | sort | head -n 1 || true)
+          APK=$(find source/app/build/outputs -type f -name "*release*.apk" | head -n 1 || true)
           if [ -z "$APK" ]; then
-            APK=$(find source/app/build/outputs -type f -name "*.apk" | sort | head -n 1 || true)
+            APK=$(find source/app/build/outputs -type f -name "*.apk" | head -n 1 || true)
           fi
 
           if [ -z "$APK" ]; then
+            echo "No APK found."
             echo "apk_name=" >> "$GITHUB_OUTPUT"
             echo "apk_path=" >> "$GITHUB_OUTPUT"
             exit 0
