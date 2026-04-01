@@ -1,9 +1,5 @@
 name: 🚀 Cross-Repo Android Release Pipeline (Zonic)
 
-concurrency:
-  group: zonic-release-${{ github.repository }}-${{ github.ref_name }}
-  cancel-in-progress: true
-
 on:
   repository_dispatch:
     types: [zonic]
@@ -13,6 +9,13 @@ on:
         description: "Which part to bump (patch | minor | major)"
         required: false
         default: "patch"
+
+concurrency:
+  group: zonic-release-${{ github.repository }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
 
 env:
   SOURCE_REPO: "varun-legend/Zonic"
@@ -27,6 +30,7 @@ jobs:
       RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
       RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
       PAT: ${{ secrets.PAT }}
+      GRADLE_ENCRYPTION_KEY: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
     steps:
       - name: 📁 Checkout source repo (Zonic)
@@ -34,7 +38,7 @@ jobs:
         with:
           repository: ${{ env.SOURCE_REPO }}
           token: ${{ secrets.PAT }}
-          fetch-depth: 0
+          fetch-depth: 1
           path: source
 
       - name: 🔧 Setup Temurin JDK 17
@@ -45,6 +49,9 @@ jobs:
 
       - name: ⚡ Setup Gradle cache
         uses: gradle/actions/setup-gradle@v5
+        with:
+          cache-encryption-key: ${{ env.GRADLE_ENCRYPTION_KEY }}
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
 
       - name: 📥 Ensure gradlew executable
         run: chmod +x ./source/gradlew
@@ -131,7 +138,7 @@ jobs:
         run: |
           set -euo pipefail
           cd source
-          ./gradlew assembleRelease --no-daemon --configuration-cache --build-cache
+          ./gradlew assembleRelease --configuration-cache --build-cache
           echo "built=release" >> "$GITHUB_OUTPUT"
 
       - name: 🔎 Find Release APK
