@@ -9,9 +9,13 @@ on:
         description: "Which part to bump (patch | minor | major)"
         required: false
         default: "patch"
+      build_type:
+        description: "Build variant (debug | release)"
+        required: false
+        default: "release"
 
 concurrency:
-  group: zonic-release-${{ github.repository }}-${{ github.ref_name }}
+  group: zonic-release-${{ github.repository }}-${{ github.ref_name }}-${{ github.event.inputs.build_type || 'release' }}
   cancel-in-progress: true
 
 permissions:
@@ -31,6 +35,7 @@ jobs:
       RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
       PAT: ${{ secrets.PAT }}
       GRADLE_ENCRYPTION_KEY: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+      BUILD_TYPE: ${{ github.event.inputs.build_type || 'release' }}
 
     steps:
       - name: 📁 Checkout source repo (Zonic)
@@ -57,6 +62,7 @@ jobs:
         run: chmod +x ./source/gradlew
 
       - name: 🔐 Restore keystore + signing props
+        if: ${{ env.BUILD_TYPE == 'release' }}
         run: |
           set -euo pipefail
 
@@ -133,34 +139,47 @@ jobs:
           echo "version_name=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "version_code=$NEW_CODE" >> "$GITHUB_OUTPUT"
 
-      - name: 🧱 Build Release
+      - name: 🧱 Build
         id: build
         run: |
           set -euo pipefail
           cd source
-          ./gradlew assembleRelease --configuration-cache --build-cache
-          echo "built=release" >> "$GITHUB_OUTPUT"
 
-      - name: 🔎 Find Release APK
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            ./gradlew assembleDebug --configuration-cache --build-cache
+          else
+            ./gradlew assembleRelease --configuration-cache --build-cache
+          fi
+
+          echo "built=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
+
+      - name: 🔎 Find APK
         id: find-apk
         run: |
           set -euo pipefail
 
-          APK=$(find source/app/build/outputs -type f -name "*release*.apk" | head -n 1 || true)
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            APK=$(find source/app/build/outputs -type f -name "*debug*.apk" | head -n 1 || true)
+          else
+            APK=$(find source/app/build/outputs -type f -name "*release*.apk" | head -n 1 || true)
+          fi
+
           if [ -z "$APK" ]; then
             APK=$(find source/app/build/outputs -type f -name "*.apk" | head -n 1 || true)
           fi
 
           if [ -z "$APK" ]; then
             echo "No APK found."
-            echo "apk_name=" >> "$GITHUB_OUTPUT"
-            echo "apk_path=" >> "$GITHUB_OUTPUT"
-            exit 0
+            exit 1
           fi
 
-          TARGET_NAME="Zonic-v${{ steps.version.outputs.version_name }}.apk"
-          TARGET_PATH="$(dirname "$APK")/$TARGET_NAME"
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            TARGET_NAME="Zonic-v${{ steps.version.outputs.version_name }}-debug.apk"
+          else
+            TARGET_NAME="Zonic-v${{ steps.version.outputs.version_name }}.apk"
+          fi
 
+          TARGET_PATH="$(dirname "$APK")/$TARGET_NAME"
           mv "$APK" "$TARGET_PATH"
 
           echo "apk_name=$TARGET_NAME" >> "$GITHUB_OUTPUT"
@@ -194,9 +213,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG="v${{ steps.version.outputs.version_name }}"
-          TITLE="📦 Release ${TAG}"
-          BODY="Release ${TAG} (code ${{ steps.version.outputs.version_code }})"
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            TAG="v${{ steps.version.outputs.version_name }}-debug"
+            TITLE="🧪 Debug Release ${TAG}"
+            BODY="Debug release ${TAG} (code ${{ steps.version.outputs.version_code }})"
+          else
+            TAG="v${{ steps.version.outputs.version_name }}"
+            TITLE="📦 Release ${TAG}"
+            BODY="Release ${TAG} (code ${{ steps.version.outputs.version_code }})"
+          fi
+
           APK_PATH="${{ steps.find-apk.outputs.apk_path }}"
 
           if gh release view "$TAG" --repo "${{ env.SOURCE_REPO }}" >/dev/null 2>&1; then
