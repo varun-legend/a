@@ -65,11 +65,22 @@ jobs:
         if: ${{ env.BUILD_TYPE == 'release' }}
         run: |
           set -euo pipefail
+
+          if [ -z "${{ secrets.RELEASE_STORE_FILE }}" ]; then
+            echo "ERROR: RELEASE_STORE_FILE secret not set"
+            exit 1
+          fi
+
           cd source
 
           KEY_BASENAME="varun-release-key-$(echo "${SOURCE_REPO}" | tr '/' '-')"
           printf '%s' "${{ secrets.RELEASE_STORE_FILE }}" | base64 --decode > "${KEY_BASENAME}.p12"
           chmod 600 "${KEY_BASENAME}.p12"
+
+          if [ -f gradle.properties ]; then
+            grep -vE '^(RELEASE_STORE_FILE|RELEASE_KEY_ALIAS|RELEASE_STORE_PASSWORD|RELEASE_KEY_PASSWORD)=' gradle.properties > gradle.properties.tmp || true
+            mv gradle.properties.tmp gradle.properties || true
+          fi
 
           printf 'RELEASE_STORE_FILE=%s.p12\n' "${KEY_BASENAME}" >> gradle.properties
           printf 'RELEASE_KEY_ALIAS=%s\n' "${{ secrets.RELEASE_KEY_ALIAS }}" >> gradle.properties
@@ -82,76 +93,23 @@ jobs:
           BUMP: ${{ github.event.inputs.bump }}
         run: |
           set -euo pipefail
-          cd source
 
+          cd source
           BUMP="${BUMP:-patch}"
 
           if [ ! -f version.properties ]; then
             printf 'versionName=0.0.0\nversionCode=0\n' > version.properties
           fi
 
-          CURRENT_NAME=$(awk -F= '/^versionName/ {print $2; exit}' version.properties | tr -d '\r')
-          CURRENT_CODE=$(awk -F= '/^versionCode/ {print $2; exit}' version.properties | tr -d '\r')
+          CURRENT_NAME=$(awk -F= '/^versionName/ {print $2; exit}' version.properties | tr -d '\r' || true)
+          CURRENT_CODE=$(awk -F= '/^versionCode/ {print $2; exit}' version.properties | tr -d '\r' || true)
+
+          CURRENT_NAME=${CURRENT_NAME:-0.0.0}
+          CURRENT_CODE=${CURRENT_CODE:-0}
 
           IFS='.' read -r MA MI PA <<< "$CURRENT_NAME"
+          MA=${MA:-0}
+          MI=${MI:-0}
+          PA=${PA:-0}
 
-          case "$BUMP" in
-            major) MA=$((MA+1)); MI=0; PA=0 ;;
-            minor) MI=$((MI+1)); PA=0 ;;
-            *) PA=$((PA+1)) ;;
-          esac
-
-          NEW_VERSION="${MA}.${MI}.${PA}"
-          NEW_CODE=$((CURRENT_CODE+1))
-
-          printf 'versionName=%s\nversionCode=%s\n' "$NEW_VERSION" "$NEW_CODE" > version.properties
-
-          echo "version_name=$NEW_VERSION" >> "$GITHUB_OUTPUT"
-          echo "version_code=$NEW_CODE" >> "$GITHUB_OUTPUT"
-
-      - name: 🧱 Build
-        run: |
-          set -euo pipefail
-          cd source
-
-          if [ "$BUILD_TYPE" = "debug" ]; then
-            ./gradlew assembleDebug --configuration-cache --build-cache
-          else
-            ./gradlew assembleRelease --configuration-cache --build-cache
-          fi
-
-      - name: 🔎 Find APK
-        id: find-apk
-        run: |
-          set -euo pipefail
-
-          APK=$(find source/app/build/outputs -type f -name "*.apk" | head -n 1)
-
-          TARGET_NAME="Zonic-v${{ steps.version.outputs.version_name }}.apk"
-          TARGET_PATH="$(dirname "$APK")/$TARGET_NAME"
-
-          mv "$APK" "$TARGET_PATH"
-
-          echo "apk_path=$TARGET_PATH" >> "$GITHUB_OUTPUT"
-
-      - name: 🧾 Create GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.PAT }}
-        run: |
-          set -euo pipefail
-
-          TAG="v${{ steps.version.outputs.version_name }}"
-          APK_PATH="${{ steps.find-apk.outputs.apk_path }}"
-
-          gh release create "$TAG" "$APK_PATH" \
-            --repo "${{ env.SOURCE_REPO }}" \
-            -t "📦 Release $TAG" \
-            -n "Release $TAG"
-
-      # ✅ NEW STEP (THIS IS WHAT YOU WANTED)
-      - name: 📊 Upload Compose metrics
-        uses: actions/upload-artifact@v4
-        with:
-          name: compose-metrics-${{ steps.version.outputs.version_name }}
-          path: source/app/build/reports/compose
-          if-no-files-found: warn
+          MA=$(printf '%s' "$MA
