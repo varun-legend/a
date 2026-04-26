@@ -112,4 +112,129 @@ jobs:
           MI=${MI:-0}
           PA=${PA:-0}
 
-          MA=$(printf '%s' "$MA
+          MA=$(printf '%s' "$MA" | grep -oE '^[0-9]+' || echo 0)
+          MI=$(printf '%s' "$MI" | grep -oE '^[0-9]+' || echo 0)
+          PA=$(printf '%s' "$PA" | grep -oE '^[0-9]+' || echo 0)
+
+          case "$BUMP" in
+            major)
+              MA=$((MA + 1))
+              MI=0
+              PA=0
+              ;;
+            minor)
+              MI=$((MI + 1))
+              PA=0
+              ;;
+            *)
+              PA=$((PA + 1))
+              ;;
+          esac
+
+          NEW_VERSION="${MA}.${MI}.${PA}"
+          NEW_CODE=$((CURRENT_CODE + 1))
+
+          printf 'versionName=%s\nversionCode=%s\n' "$NEW_VERSION" "$NEW_CODE" > version.properties
+
+          echo "version_name=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_code=$NEW_CODE" >> "$GITHUB_OUTPUT"
+
+      - name: 🧱 Build
+        id: build
+        run: |
+          set -euo pipefail
+          cd source
+
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            ./gradlew assembleDebug --configuration-cache --build-cache
+          else
+            ./gradlew assembleRelease --configuration-cache --build-cache
+          fi
+
+          echo "built=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
+
+      - name: 🔎 Find APK
+        id: find-apk
+        run: |
+          set -euo pipefail
+
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            APK=$(find source/app/build/outputs -type f -name "*debug*.apk" | head -n 1 || true)
+          else
+            APK=$(find source/app/build/outputs -type f -name "*release*.apk" | head -n 1 || true)
+          fi
+
+          if [ -z "$APK" ]; then
+            APK=$(find source/app/build/outputs -type f -name "*.apk" | head -n 1 || true)
+          fi
+
+          if [ -z "$APK" ]; then
+            echo "No APK found."
+            exit 1
+          fi
+
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            TARGET_NAME="Zonic-v${{ steps.version.outputs.version_name }}-debug.apk"
+          else
+            TARGET_NAME="Zonic-v${{ steps.version.outputs.version_name }}.apk"
+          fi
+
+          TARGET_PATH="$(dirname "$APK")/$TARGET_NAME"
+          mv "$APK" "$TARGET_PATH"
+
+          echo "apk_name=$TARGET_NAME" >> "$GITHUB_OUTPUT"
+          echo "apk_path=$TARGET_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: 📝 Commit version.properties back to source
+        if: ${{ steps.find-apk.outputs.apk_path != '' }}
+        run: |
+          set -euo pipefail
+          cd source
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet -- version.properties; then
+            exit 0
+          fi
+
+          git add version.properties
+          git commit -m "ci: bump version to v${{ steps.version.outputs.version_name }} [skip zonic]"
+
+          SOURCE_BRANCH="$(git branch --show-current)"
+          SOURCE_BRANCH="${SOURCE_BRANCH:-main}"
+
+          git push "https://x-access-token:${{ secrets.PAT }}@github.com/${{ env.SOURCE_REPO }}.git" HEAD:"$SOURCE_BRANCH"
+
+      - name: 🧾 Create or update GitHub Release
+        if: ${{ steps.find-apk.outputs.apk_path != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          set -euo pipefail
+
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            TAG="v${{ steps.version.outputs.version_name }}-debug"
+            TITLE="🧪 Debug Release ${TAG}"
+            BODY="Debug release ${TAG} (code ${{ steps.version.outputs.version_code }})"
+          else
+            TAG="v${{ steps.version.outputs.version_name }}"
+            TITLE="📦 Release ${TAG}"
+            BODY="Release ${TAG} (code ${{ steps.version.outputs.version_code }})"
+          fi
+
+          APK_PATH="${{ steps.find-apk.outputs.apk_path }}"
+
+          if gh release view "$TAG" --repo "${{ env.SOURCE_REPO }}" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_PATH" --repo "${{ env.SOURCE_REPO }}" --clobber
+          else
+            gh release create "$TAG" "$APK_PATH" --repo "${{ env.SOURCE_REPO }}" -t "$TITLE" -n "$BODY"
+          fi
+
+      - name: 📊 Upload Compose metrics
+        if: ${{ steps.find-apk.outputs.apk_path != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-metrics-${{ steps.version.outputs.version_name }}
+          path: source/app/build/reports/compose
+          if-no-files-found: warn
