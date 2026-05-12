@@ -148,7 +148,7 @@ jobs:
           if [ "$BUILD_TYPE" = "debug" ]; then
             ./gradlew assembleDebug --configuration-cache --build-cache
           else
-            ./gradlew assembleRelease --configuration-cache --build-cache
+            ./gradlew assembleRelease --configuration-cache --build-cache --parallel
           fi
 
           echo "built=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
@@ -230,11 +230,3 @@ jobs:
           else
             gh release create "$TAG" "$APK_PATH" --repo "${{ env.SOURCE_REPO }}" -t "$TITLE" -n "$BODY"
           fi
-
-      - name: 📊 Upload Compose metrics
-        if: ${{ steps.find-apk.outputs.apk_path != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: compose-metrics-${{ steps.version.outputs.version_name }}
-          path: source/app/build/reports/compose
-          if-no-files-found: warn
