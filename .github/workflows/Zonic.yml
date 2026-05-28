@@ -38,6 +38,11 @@ jobs:
       BUILD_TYPE: ${{ github.event.inputs.build_type || 'release' }}
 
     steps:
+      - name: 📁 Checkout workflow repo (for gradlew)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
       - name: 📁 Checkout source repo (Zonic)
         uses: actions/checkout@v5
         with:
@@ -57,9 +62,6 @@ jobs:
         with:
           cache-encryption-key: ${{ env.GRADLE_ENCRYPTION_KEY }}
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
-
-      - name: 📥 Ensure gradlew executable
-        run: chmod +x ./source/gradlew
 
       - name: 🔐 Restore keystore + signing props
         if: ${{ env.BUILD_TYPE == 'release' }}
@@ -136,6 +138,9 @@ jobs:
 
           printf 'versionName=%s\nversionCode=%s\n' "$NEW_VERSION" "$NEW_CODE" > version.properties
 
+          cp ../gradlew ./gradlew
+          chmod +x ./gradlew
+
           echo "version_name=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "version_code=$NEW_CODE" >> "$GITHUB_OUTPUT"
 
@@ -144,8 +149,6 @@ jobs:
         working-directory: source
         run: |
           set -euo pipefail
-
-          chmod +x ./gradlew
 
           if [ "$BUILD_TYPE" = "debug" ]; then
             ./gradlew assembleDebug --configuration-cache --build-cache
