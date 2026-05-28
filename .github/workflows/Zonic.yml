@@ -38,11 +38,6 @@ jobs:
       BUILD_TYPE: ${{ github.event.inputs.build_type || 'release' }}
 
     steps:
-      - name: 📁 Checkout workflow repo (this repo, for gradlew)
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 1
-
       - name: 📁 Checkout source repo (Zonic)
         uses: actions/checkout@v5
         with:
@@ -64,7 +59,7 @@ jobs:
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
 
       - name: 📥 Ensure gradlew executable
-        run: chmod +x ./gradlew
+        run: chmod +x ./source/gradlew
 
       - name: 🔐 Restore keystore + signing props
         if: ${{ env.BUILD_TYPE == 'release' }}
@@ -146,13 +141,16 @@ jobs:
 
       - name: 🧱 Build
         id: build
+        working-directory: source
         run: |
           set -euo pipefail
 
+          chmod +x ./gradlew
+
           if [ "$BUILD_TYPE" = "debug" ]; then
-            ./gradlew -p source assembleDebug --configuration-cache --build-cache
+            ./gradlew assembleDebug --configuration-cache --build-cache
           else
-            ./gradlew -p source assembleRelease --configuration-cache --build-cache --parallel
+            ./gradlew assembleRelease --configuration-cache --build-cache --parallel
           fi
 
           echo "built=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
