@@ -39,12 +39,12 @@ jobs:
 
     steps:
       - name: 📁 Checkout workflow repo (for gradlew)
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
       - name: 📁 Checkout source repo (Zonic)
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: ${{ env.SOURCE_REPO }}
           token: ${{ secrets.PAT }}
