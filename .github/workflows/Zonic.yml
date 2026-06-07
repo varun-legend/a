@@ -40,7 +40,7 @@ jobs:
       BUILD_TYPE: ${{ github.event.inputs.build_type || 'release' }}
 
     steps:
-      - name: 📁 Checkout workflow repo (for gradlew)
+      - name: 📁 Checkout workflow repo
         uses: actions/checkout@v6
         with:
           fetch-depth: 1
@@ -52,6 +52,20 @@ jobs:
           repository: ${{ env.SOURCE_REPO }}
           token: ${{ secrets.PAT }}
           fetch-depth: 1
+
+      - name: 🧰 Prepare Gradle wrapper
+        run: |
+          set -euo pipefail
+
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+          elif [ -f "ci/gradlew" ]; then
+            cp ci/gradlew ./gradlew
+            chmod +x ./gradlew
+          else
+            echo "ERROR: gradlew not found in root or ci/"
+            exit 1
+          fi
 
       - name: 🔧 Setup Temurin JDK 17
         uses: actions/setup-java@v5
@@ -133,9 +147,6 @@ jobs:
 
           printf 'versionName=%s\nversionCode=%s\n' "$NEW_VERSION" "$NEW_CODE" > "$VERSION_FILE"
 
-          cp ci/gradlew ./gradlew
-          chmod +x ./gradlew
-
           echo "version_name=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "version_code=$NEW_CODE" >> "$GITHUB_OUTPUT"
 
@@ -150,7 +161,11 @@ jobs:
             ./gradlew assembleRelease \
               --configuration-cache \
               --build-cache \
-              --parallel
+              --parallel \
+              -PRELEASE_STORE_FILE="$KEYSTORE_PATH" \
+              -PRELEASE_KEY_ALIAS="$RELEASE_KEY_ALIAS" \
+              -PRELEASE_STORE_PASSWORD="$RELEASE_STORE_PASSWORD" \
+              -PRELEASE_KEY_PASSWORD="$RELEASE_KEY_PASSWORD"
           fi
 
           echo "built=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
@@ -182,7 +197,6 @@ jobs:
           fi
 
           TARGET_PATH="$(dirname "$APK")/$TARGET_NAME"
-
           mv "$APK" "$TARGET_PATH"
 
           echo "apk_name=$TARGET_NAME" >> "$GITHUB_OUTPUT"
@@ -201,7 +215,6 @@ jobs:
           fi
 
           git add app/src/main/assets/version.txt
-
           git commit -m "ci: bump UI version to v${{ steps.version.outputs.version_name }} [skip zonic]"
 
           SOURCE_BRANCH="$(git branch --show-current)"
