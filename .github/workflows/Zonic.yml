@@ -161,7 +161,7 @@ jobs:
           if [ "$BUILD_TYPE" = "debug" ]; then
             ./gradlew assembleDebug --configuration-cache --build-cache
           else
-            ./gradlew assembleRelease --configuration-cache --build-cache --parallel
+            ./gradlew assembleRelease --configuration-cache --build-cache --parallel --info
           fi
 
           echo "built=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
