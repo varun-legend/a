@@ -44,6 +44,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 1
+          path: ci
 
       - name: 📁 Checkout source repo (Zonic)
         uses: actions/checkout@v6
@@ -51,7 +52,6 @@ jobs:
           repository: ${{ env.SOURCE_REPO }}
           token: ${{ secrets.PAT }}
           fetch-depth: 1
-          path: source
 
       - name: 🔧 Setup Temurin JDK 17
         uses: actions/setup-java@v5
@@ -87,8 +87,6 @@ jobs:
           BUMP: ${{ github.event.inputs.bump }}
         run: |
           set -euo pipefail
-
-          cd source
 
           BUMP="${BUMP:-patch}"
           VERSION_FILE="app/src/main/assets/version.txt"
@@ -135,7 +133,7 @@ jobs:
 
           printf 'versionName=%s\nversionCode=%s\n' "$NEW_VERSION" "$NEW_CODE" > "$VERSION_FILE"
 
-          cp ../gradlew ./gradlew
+          cp ci/gradlew ./gradlew
           chmod +x ./gradlew
 
           echo "version_name=$NEW_VERSION" >> "$GITHUB_OUTPUT"
@@ -143,7 +141,6 @@ jobs:
 
       - name: 🧱 Build
         id: build
-        working-directory: source
         run: |
           set -euo pipefail
 
@@ -153,11 +150,7 @@ jobs:
             ./gradlew assembleRelease \
               --configuration-cache \
               --build-cache \
-              --parallel \
-              -PRELEASE_STORE_FILE="$KEYSTORE_PATH" \
-              -PRELEASE_KEY_ALIAS="$RELEASE_KEY_ALIAS" \
-              -PRELEASE_STORE_PASSWORD="$RELEASE_STORE_PASSWORD" \
-              -PRELEASE_KEY_PASSWORD="$RELEASE_KEY_PASSWORD"
+              --parallel
           fi
 
           echo "built=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
@@ -168,13 +161,13 @@ jobs:
           set -euo pipefail
 
           if [ "$BUILD_TYPE" = "debug" ]; then
-            APK=$(find source/app/build/outputs -type f -name "*debug*.apk" | head -n 1 || true)
+            APK=$(find app/build/outputs -type f -name "*debug*.apk" | head -n 1 || true)
           else
-            APK=$(find source/app/build/outputs -type f -name "*release*.apk" | head -n 1 || true)
+            APK=$(find app/build/outputs -type f -name "*release*.apk" | head -n 1 || true)
           fi
 
           if [ -z "$APK" ]; then
-            APK=$(find source/app/build/outputs -type f -name "*.apk" | head -n 1 || true)
+            APK=$(find app/build/outputs -type f -name "*.apk" | head -n 1 || true)
           fi
 
           if [ -z "$APK" ]; then
@@ -199,8 +192,6 @@ jobs:
         if: ${{ steps.find-apk.outputs.apk_path != '' }}
         run: |
           set -euo pipefail
-
-          cd source
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
