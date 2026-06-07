@@ -195,15 +195,6 @@ jobs:
           echo "apk_name=$TARGET_NAME" >> "$GITHUB_OUTPUT"
           echo "apk_path=$TARGET_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: 📁 Upload Cache Invalidation Report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gradle-configuration-cache-report
-          path: source/build/reports/configuration-cache/
-          if-no-files-found: ignore
-          retention-days: 7
-
       - name: 📝 Commit asset version back to source
         if: ${{ steps.find-apk.outputs.apk_path != '' }}
         run: |
