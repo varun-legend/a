@@ -153,11 +153,7 @@ jobs:
             ./gradlew assembleRelease \
               --configuration-cache \
               --build-cache \
-              --parallel \
-              -PRELEASE_STORE_FILE="$KEYSTORE_PATH" \
-              -PRELEASE_KEY_ALIAS="$RELEASE_KEY_ALIAS" \
-              -PRELEASE_STORE_PASSWORD="$RELEASE_STORE_PASSWORD" \
-              -PRELEASE_KEY_PASSWORD="$RELEASE_KEY_PASSWORD"
+              --parallel
           fi
 
           echo "built=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
