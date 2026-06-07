@@ -65,6 +65,13 @@ jobs:
           cache-encryption-key: ${{ env.GRADLE_ENCRYPTION_KEY }}
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
 
+      - name: ⚡ Cache Gradle configuration cache
+        uses: actions/cache@v4
+        with:
+          path: source/.gradle/configuration-cache
+          key: config-cache-${{ runner.os }}-${{ hashFiles('source/**/*.gradle.kts', 'source/gradle.properties', 'source/gradle/libs.versions.toml') }}
+          restore-keys: config-cache-${{ runner.os }}-
+
       - name: 🔐 Decode release keystore
         if: ${{ env.BUILD_TYPE == 'release' }}
         run: |
@@ -153,7 +160,11 @@ jobs:
             ./gradlew assembleRelease \
               --configuration-cache \
               --build-cache \
-              --parallel
+              --parallel \
+              -PRELEASE_STORE_FILE="$KEYSTORE_PATH" \
+              -PRELEASE_KEY_ALIAS="$RELEASE_KEY_ALIAS" \
+              -PRELEASE_STORE_PASSWORD="$RELEASE_STORE_PASSWORD" \
+              -PRELEASE_KEY_PASSWORD="$RELEASE_KEY_PASSWORD"
           fi
 
           echo "built=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
