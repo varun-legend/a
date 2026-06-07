@@ -65,7 +65,7 @@ jobs:
           cache-encryption-key: ${{ env.GRADLE_ENCRYPTION_KEY }}
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
 
-      - name: 🔐 Restore keystore + signing props
+      - name: 🔐 Decode release keystore
         if: ${{ env.BUILD_TYPE == 'release' }}
         run: |
           set -euo pipefail
@@ -75,22 +75,11 @@ jobs:
             exit 1
           fi
 
-          cd source
+          KEYSTORE_PATH="$RUNNER_TEMP/varun-release-key.p12"
+          printf '%s' "${{ secrets.RELEASE_STORE_FILE }}" | base64 --decode > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
 
-          KEY_BASENAME="varun-release-key-$(echo "${SOURCE_REPO}" | tr '/' '-')"
-
-          printf '%s' "${{ secrets.RELEASE_STORE_FILE }}" | base64 --decode > "${KEY_BASENAME}.p12"
-          chmod 600 "${KEY_BASENAME}.p12"
-
-          if [ -f gradle.properties ]; then
-            grep -vE '^(RELEASE_STORE_FILE|RELEASE_KEY_ALIAS|RELEASE_STORE_PASSWORD|RELEASE_KEY_PASSWORD)=' gradle.properties > gradle.properties.tmp || true
-            mv gradle.properties.tmp gradle.properties || true
-          fi
-
-          printf 'RELEASE_STORE_FILE=%s.p12\n' "${KEY_BASENAME}" >> gradle.properties
-          printf 'RELEASE_KEY_ALIAS=%s\n' "${{ secrets.RELEASE_KEY_ALIAS }}" >> gradle.properties
-          printf 'RELEASE_STORE_PASSWORD=%s\n' "${{ secrets.RELEASE_STORE_PASSWORD }}" >> gradle.properties
-          printf 'RELEASE_KEY_PASSWORD=%s\n' "${{ secrets.RELEASE_KEY_PASSWORD }}" >> gradle.properties
+          echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
 
       - name: 🔍 Bump asset version for UI
         id: version
@@ -161,7 +150,14 @@ jobs:
           if [ "$BUILD_TYPE" = "debug" ]; then
             ./gradlew assembleDebug --configuration-cache --build-cache
           else
-            ./gradlew assembleRelease --configuration-cache --build-cache --parallel --info
+            ./gradlew assembleRelease \
+              --configuration-cache \
+              --build-cache \
+              --parallel \
+              -PRELEASE_STORE_FILE="$KEYSTORE_PATH" \
+              -PRELEASE_KEY_ALIAS="$RELEASE_KEY_ALIAS" \
+              -PRELEASE_STORE_PASSWORD="$RELEASE_STORE_PASSWORD" \
+              -PRELEASE_KEY_PASSWORD="$RELEASE_KEY_PASSWORD"
           fi
 
           echo "built=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
