@@ -65,13 +65,6 @@ jobs:
           cache-encryption-key: ${{ env.GRADLE_ENCRYPTION_KEY }}
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
 
-      - name: ⚡ Cache Gradle configuration cache
-        uses: actions/cache@v4
-        with:
-          path: source/.gradle/configuration-cache
-          key: config-cache-${{ runner.os }}-${{ hashFiles('source/**/*.gradle.kts', 'source/gradle.properties', 'source/gradle/libs.versions.toml') }}
-          restore-keys: config-cache-${{ runner.os }}-
-
       - name: 🔐 Decode release keystore
         if: ${{ env.BUILD_TYPE == 'release' }}
         run: |
@@ -82,7 +75,7 @@ jobs:
             exit 1
           fi
 
-          KEYSTORE_PATH="$RUNNER_TEMP/varun-release-key.p12"
+          KEYSTORE_PATH="$GITHUB_WORKSPACE/keystore.p12"
           printf '%s' "${{ secrets.RELEASE_STORE_FILE }}" | base64 --decode > "$KEYSTORE_PATH"
           chmod 600 "$KEYSTORE_PATH"
 
