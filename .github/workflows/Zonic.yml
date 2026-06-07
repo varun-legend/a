@@ -89,7 +89,7 @@ jobs:
           printf 'RELEASE_STORE_PASSWORD=%s\n' "${{ secrets.RELEASE_STORE_PASSWORD }}" >> gradle.properties
           printf 'RELEASE_KEY_PASSWORD=%s\n' "${{ secrets.RELEASE_KEY_PASSWORD }}" >> gradle.properties
 
-      - name: 🔍 Bump version and write version.properties
+      - name: 🔍 Bump asset version for UI
         id: version
         env:
           BUMP: ${{ github.event.inputs.bump }}
@@ -98,13 +98,16 @@ jobs:
 
           cd source
           BUMP="${BUMP:-patch}"
+          VERSION_FILE="app/src/main/assets/version.txt"
 
-          if [ ! -f version.properties ]; then
-            printf 'versionName=0.0.0\nversionCode=0\n' > version.properties
+          mkdir -p "$(dirname "$VERSION_FILE")"
+
+          if [ ! -f "$VERSION_FILE" ]; then
+            printf 'versionName=0.0.0\nversionCode=0\n' > "$VERSION_FILE"
           fi
 
-          CURRENT_NAME=$(awk -F= '/^versionName/ {print $2; exit}' version.properties | tr -d '\r' || true)
-          CURRENT_CODE=$(awk -F= '/^versionCode/ {print $2; exit}' version.properties | tr -d '\r' || true)
+          CURRENT_NAME=$(awk -F= '/^versionName/ {print $2; exit}' "$VERSION_FILE" | tr -d '\r' || true)
+          CURRENT_CODE=$(awk -F= '/^versionCode/ {print $2; exit}' "$VERSION_FILE" | tr -d '\r' || true)
 
           CURRENT_NAME=${CURRENT_NAME:-0.0.0}
           CURRENT_CODE=${CURRENT_CODE:-0}
@@ -136,7 +139,7 @@ jobs:
           NEW_VERSION="${MA}.${MI}.${PA}"
           NEW_CODE=$((CURRENT_CODE + 1))
 
-          printf 'versionName=%s\nversionCode=%s\n' "$NEW_VERSION" "$NEW_CODE" > version.properties
+          printf 'versionName=%s\nversionCode=%s\n' "$NEW_VERSION" "$NEW_CODE" > "$VERSION_FILE"
 
           cp ../gradlew ./gradlew
           chmod +x ./gradlew
@@ -190,7 +193,7 @@ jobs:
           echo "apk_name=$TARGET_NAME" >> "$GITHUB_OUTPUT"
           echo "apk_path=$TARGET_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: 📝 Commit version.properties back to source
+      - name: 📝 Commit asset version back to source
         if: ${{ steps.find-apk.outputs.apk_path != '' }}
         run: |
           set -euo pipefail
@@ -199,12 +202,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          if git diff --quiet -- version.properties; then
+          if git diff --quiet -- app/src/main/assets/version.txt; then
             exit 0
           fi
 
-          git add version.properties
-          git commit -m "ci: bump version to v${{ steps.version.outputs.version_name }} [skip zonic]"
+          git add app/src/main/assets/version.txt
+          git commit -m "ci: bump UI version to v${{ steps.version.outputs.version_name }} [skip zonic]"
 
           SOURCE_BRANCH="$(git branch --show-current)"
           SOURCE_BRANCH="${SOURCE_BRANCH:-main}"
