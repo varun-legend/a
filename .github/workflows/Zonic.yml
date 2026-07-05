@@ -75,7 +75,7 @@ jobs:
 
           echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
 
-      - name: 🔍 Bump asset version for UI
+      - name: 🔍 Bump app version
         id: version
         env:
           BUMP: ${{ github.event.inputs.bump }}
@@ -83,9 +83,7 @@ jobs:
           set -euo pipefail
 
           BUMP="${BUMP:-patch}"
-          VERSION_FILE="app/src/main/assets/version.txt"
-
-          mkdir -p "$(dirname "$VERSION_FILE")"
+          VERSION_FILE="version.properties"
 
           if [ ! -f "$VERSION_FILE" ]; then
             printf 'versionName=0.0.0\nversionCode=0\n' > "$VERSION_FILE"
@@ -185,7 +183,7 @@ jobs:
           echo "apk_name=$TARGET_NAME" >> "$GITHUB_OUTPUT"
           echo "apk_path=$TARGET_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: 📝 Commit asset version back to source
+      - name: 📝 Commit version back to source
         if: ${{ steps.find-apk.outputs.apk_path != '' }}
         run: |
           set -euo pipefail
@@ -193,13 +191,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          if git diff --quiet -- app/src/main/assets/version.txt; then
+          if git diff --quiet -- version.properties; then
             exit 0
           fi
 
-          git add app/src/main/assets/version.txt
+          git add version.properties
 
-          git commit -m "ci: bump UI version to v${{ steps.version.outputs.version_name }} [skip zonic]"
+          git commit -m "ci: bump version to v${{ steps.version.outputs.version_name }} [skip zonic]"
 
           SOURCE_BRANCH="$(git branch --show-current)"
           SOURCE_BRANCH="${SOURCE_BRANCH:-main}"
