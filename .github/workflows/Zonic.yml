@@ -59,13 +59,6 @@ jobs:
           cache-encryption-key: ${{ env.GRADLE_ENCRYPTION_KEY }}
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
 
-      - name: ⚡ Cache configuration cache
-        uses: actions/cache@v4
-        with:
-          path: .gradle/configuration-cache
-          key: config-cache-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml', 'gradle.properties', 'gradle-wrapper.properties') }}
-          restore-keys: config-cache-${{ runner.os }}-
-
       - name: 🔐 Decode release keystore
         if: ${{ env.BUILD_TYPE == 'release' }}
         run: |
