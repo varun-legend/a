@@ -59,6 +59,34 @@ jobs:
           cache-encryption-key: ${{ env.GRADLE_ENCRYPTION_KEY }}
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
 
+      - name: ✨ Apply Spotless formatting
+        run: |
+          set -euo pipefail
+
+          chmod +x ./gradlew
+          ./gradlew spotlessApply --no-configuration-cache --build-cache
+
+      - name: 💾 Commit Spotless changes back to source
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet; then
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+          git commit -m "ci: apply spotless formatting [skip zonic]"
+
+          SOURCE_BRANCH="$(git branch --show-current)"
+          SOURCE_BRANCH="${SOURCE_BRANCH:-main}"
+
+          git push \
+            "https://x-access-token:${{ secrets.PAT }}@github.com/${{ env.SOURCE_REPO }}.git" \
+            HEAD:"$SOURCE_BRANCH"
+
       - name: 🔐 Decode release keystore
         if: ${{ env.BUILD_TYPE == 'release' }}
         run: |
