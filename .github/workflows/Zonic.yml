@@ -97,7 +97,7 @@ jobs:
             exit 0
           fi
 
-          git commit -m "ci: apply spotless formatting [skip ci]"
+          git commit -m "ci: apply spotless formatting [skip zonic]"
 
           SOURCE_BRANCH="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || true)"
           SOURCE_BRANCH="${SOURCE_BRANCH:-main}"
@@ -274,7 +274,7 @@ jobs:
             exit 0
           fi
 
-          git commit -m "ci: bump version to v${{ steps.version.outputs.version_name }} [skip ci]"
+          git commit -m "ci: bump version to v${{ steps.version.outputs.version_name }} [skip zonic]"
 
           SOURCE_BRANCH="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || true)"
           SOURCE_BRANCH="${SOURCE_BRANCH:-main}"
