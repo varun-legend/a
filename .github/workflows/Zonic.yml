@@ -22,8 +22,8 @@ on:
         default: "release"
         type: choice
         options:
-          - debug
           - release
+          - debug
 
 concurrency:
   group: zonic-release-${{ github.repository }}-${{ github.ref_name }}-${{ github.event.client_payload.build_type || github.event.inputs.build_type || 'release' }}
@@ -46,7 +46,7 @@ jobs:
       RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
       PAT: ${{ secrets.PAT }}
       GRADLE_ENCRYPTION_KEY: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
-      BUILD_TYPE: ${{ github.event.client_payload.build_type || github.event.inputs.build_type || 'debug' }}
+      BUILD_TYPE: ${{ github.event.client_payload.build_type || github.event.inputs.build_type || 'release' }}
       BUMP: ${{ github.event.client_payload.bump || github.event.inputs.bump || 'patch' }}
 
     steps:
@@ -70,14 +70,6 @@ jobs:
           cache-encryption-key: ${{ env.GRADLE_ENCRYPTION_KEY }}
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
 
-      - name: ✨ Apply Spotless formatting
-        if: ${{ env.BUILD_TYPE == 'release' }}
-        run: |
-          set -euo pipefail
-
-          chmod +x ./gradlew
-          ./gradlew spotlessApply --no-configuration-cache --build-cache
-
       - name: 🔐 Decode release keystore
         if: ${{ env.BUILD_TYPE == 'release' }}
         run: |
@@ -94,61 +86,57 @@ jobs:
 
           echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
 
-      - name: 🔍 Bump app version
+      - name: 🔍 Determine version from Git tags
         id: version
         run: |
           set -euo pipefail
 
-          VERSION_FILE="version.properties"
+          # Fetch all tags from remote
+          git fetch --tags origin || true
 
-          if [ ! -f "$VERSION_FILE" ]; then
-            printf 'versionName=0.0.0\nversionCode=0\n' > "$VERSION_FILE"
+          # Find the latest release version tag matching vX.Y.Z (ignoring -debug tags)
+          LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | grep -v 'debug' | sort -V | tail -n 1 || true)
+
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG="v0.0.0"
           fi
+
+          TAG_CLEAN="${LATEST_TAG#v}"
+
+          IFS='.' read -r MA MI PA <<< "$TAG_CLEAN"
+
+          MA=$(printf '%s' "${MA:-0}" | grep -oE '^[0-9]+' || echo 0)
+          MI=$(printf '%s' "${MI:-0}" | grep -oE '^[0-9]+' || echo 0)
+          PA=$(printf '%s' "${PA:-0}" | grep -oE '^[0-9]+' || echo 0)
 
           if [ "$BUILD_TYPE" != "release" ]; then
-            CURRENT_NAME=$(awk -F= '/^versionName/ {print $2; exit}' "$VERSION_FILE" | tr -d '\r' || true)
-            CURRENT_CODE=$(awk -F= '/^versionCode/ {print $2; exit}' "$VERSION_FILE" | tr -d '\r' || true)
-            echo "version_name=${CURRENT_NAME:-0.0.0}" >> "$GITHUB_OUTPUT"
-            echo "version_code=${CURRENT_CODE:-0}" >> "$GITHUB_OUTPUT"
-            exit 0
+            NEW_VERSION="${MA}.${MI}.${PA}"
+          else
+            case "$BUMP" in
+              major)
+                MA=$((MA + 1))
+                MI=0
+                PA=0
+                ;;
+              minor)
+                MI=$((MI + 1))
+                PA=0
+                ;;
+              *)
+                PA=$((PA + 1))
+                ;;
+            esac
+            NEW_VERSION="${MA}.${MI}.${PA}"
           fi
 
-          CURRENT_NAME=$(awk -F= '/^versionName/ {print $2; exit}' "$VERSION_FILE" | tr -d '\r' || true)
-          CURRENT_CODE=$(awk -F= '/^versionCode/ {print $2; exit}' "$VERSION_FILE" | tr -d '\r' || true)
+          # Calculate integer versionCode using wider multipliers (supports minor/patch up to 999)
+          # Format: MA * 1,000,000 + MI * 1,000 + PA (e.g., 1.2.3 -> 1002003)
+          NEW_CODE=$(( MA * 1000000 + MI * 1000 + PA ))
+          if [ "$NEW_CODE" -eq 0 ]; then
+            NEW_CODE=1
+          fi
 
-          CURRENT_NAME=${CURRENT_NAME:-0.0.0}
-          CURRENT_CODE=${CURRENT_CODE:-0}
-
-          IFS='.' read -r MA MI PA <<< "$CURRENT_NAME"
-
-          MA=${MA:-0}
-          MI=${MI:-0}
-          PA=${PA:-0}
-
-          MA=$(printf '%s' "$MA" | grep -oE '^[0-9]+' || echo 0)
-          MI=$(printf '%s' "$MI" | grep -oE '^[0-9]+' || echo 0)
-          PA=$(printf '%s' "$PA" | grep -oE '^[0-9]+' || echo 0)
-
-          case "$BUMP" in
-            major)
-              MA=$((MA + 1))
-              MI=0
-              PA=0
-              ;;
-            minor)
-              MI=$((MI + 1))
-              PA=0
-              ;;
-            *)
-              PA=$((PA + 1))
-              ;;
-          esac
-
-          NEW_VERSION="${MA}.${MI}.${PA}"
-          NEW_CODE=$((CURRENT_CODE + 1))
-
-          printf 'versionName=%s\nversionCode=%s\n' "$NEW_VERSION" "$NEW_CODE" > "$VERSION_FILE"
-
+          echo "Resolved version: $NEW_VERSION (code: $NEW_CODE)"
           echo "version_name=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "version_code=$NEW_CODE" >> "$GITHUB_OUTPUT"
 
@@ -159,14 +147,23 @@ jobs:
 
           chmod +x ./gradlew
 
+          VER_NAME="${{ steps.version.outputs.version_name }}"
+          VER_CODE="${{ steps.version.outputs.version_code }}"
+
           if [ "$BUILD_TYPE" = "debug" ]; then
-            ./gradlew assembleDebug --configuration-cache --build-cache
+            ./gradlew assembleDebug \
+              -PversionName="$VER_NAME" \
+              -PversionCode="$VER_CODE" \
+              --configuration-cache \
+              --build-cache
           else
             RELEASE_STORE_FILE="$KEYSTORE_PATH" \
             RELEASE_KEY_ALIAS="$RELEASE_KEY_ALIAS" \
             RELEASE_STORE_PASSWORD="$RELEASE_STORE_PASSWORD" \
             RELEASE_KEY_PASSWORD="$RELEASE_KEY_PASSWORD" \
             ./gradlew assembleRelease \
+              -PversionName="$VER_NAME" \
+              -PversionCode="$VER_CODE" \
               --configuration-cache \
               --build-cache \
               --parallel
@@ -206,7 +203,7 @@ jobs:
           echo "apk_name=$TARGET_NAME" >> "$GITHUB_OUTPUT"
           echo "apk_path=$TARGET_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: 🧾 Create or update GitHub Release
+      - name: 🧾 Create or update GitHub Release & Tag
         if: ${{ steps.find-apk.outputs.apk_path != '' }}
         env:
           GH_TOKEN: ${{ secrets.PAT }}
@@ -235,29 +232,3 @@ jobs:
               -t "$TITLE" \
               -n "$BODY"
           fi
-
-      - name: 💾 Commit Spotless + version bump back to source
-        if: ${{ env.BUILD_TYPE == 'release' && steps.find-apk.outputs.apk_path != '' }}
-        run: |
-          set -euo pipefail
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add -A -- . \
-            ':(exclude)**/build/**' \
-            ':(exclude)**/.gradle/**' \
-            ':(exclude)**/.kotlin/**'
-
-          if git diff --cached --quiet; then
-            exit 0
-          fi
-
-          git commit -m "ci: spotless + bump version to v${{ steps.version.outputs.version_name }} [skip zonic]"
-
-          SOURCE_BRANCH="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || true)"
-          SOURCE_BRANCH="${SOURCE_BRANCH:-main}"
-
-          git push \
-            "https://x-access-token:${{ secrets.PAT }}@github.com/${{ env.SOURCE_REPO }}.git" \
-            HEAD:"$SOURCE_BRANCH"
