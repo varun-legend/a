@@ -41,7 +41,6 @@ permissions:
 
 env:
   SOURCE_REPO: "varun-legend/Zonic"
-  GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:+UseG1GC"
 
 jobs:
   build-and-publish:
