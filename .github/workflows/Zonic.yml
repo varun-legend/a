@@ -62,7 +62,7 @@ jobs:
         run: |
           sudo dpkg --add-architecture amd64
           sudo apt-get update
-          sudo apt-get install -y qemu-user-static binfmt-support libc6:amd64
+          sudo apt-get install -y qemu-user-binfmt binfmt-support libc6:amd64
           # Configures the Linux kernel to route x86_64 binaries through QEMU
           sudo update-binfmts --enable
 
