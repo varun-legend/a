@@ -1,0 +1,18 @@
+name: Clear Actions Cache
+
+on:
+  workflow_dispatch: # Allows manual triggering from the GitHub Actions tab
+
+permissions:
+  actions: write # Required permission to delete caches
+
+jobs:
+  clear-cache:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete all caches
+        run: |
+          echo "Fetching and deleting all caches for this repository..."
+          gh cache delete --all --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Authenticates the CLI automatically
