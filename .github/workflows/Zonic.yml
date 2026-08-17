@@ -41,6 +41,7 @@ permissions:
 
 env:
   SOURCE_REPO: "varun-legend/Zonic"
+  GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:+UseG1GC"
 
 jobs:
   build-and-publish:
@@ -72,8 +73,11 @@ jobs:
 
       - name: 📦 Install x86_64 Libraries
         run: |
+          set -euo pipefail
+
           sudo dpkg --add-architecture amd64
           sudo apt-get update -qq
+
           sudo apt-get install -y --no-install-recommends \
             libc6:amd64 \
             libstdc++6:amd64 \
@@ -89,19 +93,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            /usr/local/lib/android/sdk/platforms/android-37
-            /usr/local/lib/android/sdk/build-tools
-          key: android-sdk-37-${{ runner.os }}-${{ runner.arch }}
+            /home/runner/.android/sdk/platforms/android-37
+            /home/runner/.android/sdk/build-tools/37.0.0
+            /home/runner/.android/sdk/platform-tools
+          key: android-sdk-37-37.0.0-${{ runner.os }}-${{ runner.arch }}
 
       - name: 📱 Setup Android SDK
         uses: android-actions/setup-android@v4
         with:
           accept-android-sdk-licenses: true
           log-accepted-android-sdk-licenses: false
-          packages: |
-            platform-tools
-            platforms;android-37
-            build-tools;37.0.0
+          packages: "platform-tools platforms;android-37 build-tools;37.0.0"
 
       - name: 🔎 Verify Android SDK
         run: |
@@ -110,16 +112,24 @@ jobs:
           echo "ANDROID_HOME=${ANDROID_HOME:-}"
           echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-}"
 
-          echo "Installed platforms:"
-          sdkmanager --list_installed | grep -E 'platforms;android-37' || true
+          echo
+          echo "Installed Android SDK packages:"
+          sdkmanager --list_installed || true
 
           echo
-          echo "Checking android-37..."
+          echo "Checking Android 37 platform..."
           test -d "${ANDROID_SDK_ROOT}/platforms/android-37"
+
+          echo "Android 37 platform found."
 
           echo
           echo "Checking Build Tools..."
-          ls -la "${ANDROID_SDK_ROOT}/build-tools"
+          test -d "${ANDROID_SDK_ROOT}/build-tools/37.0.0"
+
+          echo "Build Tools 37.0.0 found."
+
+          echo
+          echo "Android SDK verification passed."
 
       - name: ⚡ Setup Gradle cache
         uses: gradle/actions/setup-gradle@v6
@@ -314,12 +324,18 @@ jobs:
 
           if gh release view "$TAG" --repo "${{ env.SOURCE_REPO }}" >/dev/null 2>&1; then
             echo "Release already exists. Updating APK..."
-            gh release upload "$TAG" "$APK_PATH" \
+
+            gh release upload \
+              "$TAG" \
+              "$APK_PATH" \
               --repo "${{ env.SOURCE_REPO }}" \
               --clobber
           else
             echo "Creating new release..."
-            gh release create "$TAG" "$APK_PATH" \
+
+            gh release create \
+              "$TAG" \
+              "$APK_PATH" \
               --repo "${{ env.SOURCE_REPO }}" \
               -t "$TITLE" \
               -n "$BODY"
