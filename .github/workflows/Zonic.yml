@@ -64,6 +64,23 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      - name: 📱 Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: 📦 Install Android SDK 37
+        run: |
+          set -euo pipefail
+
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-37" \
+            "build-tools;37.0.0"
+
+          yes | sdkmanager --licenses >/dev/null || true
+
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+
       - name: ⚡ Setup Gradle cache
         uses: gradle/actions/setup-gradle@v6
         with:
@@ -81,7 +98,10 @@ jobs:
           fi
 
           KEYSTORE_PATH="$GITHUB_WORKSPACE/keystore.p12"
-          printf '%s' "${{ secrets.RELEASE_STORE_FILE }}" | base64 --decode > "$KEYSTORE_PATH"
+
+          printf '%s' "${{ secrets.RELEASE_STORE_FILE }}" \
+            | base64 --decode > "$KEYSTORE_PATH"
+
           chmod 600 "$KEYSTORE_PATH"
 
           echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
@@ -94,8 +114,14 @@ jobs:
           # Fetch all tags from remote
           git fetch --tags origin || true
 
-          # Find the latest release version tag matching vX.Y.Z (ignoring -debug tags)
-          LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | grep -v 'debug' | sort -V | tail -n 1 || true)
+          # Find the latest release version tag matching vX.Y.Z
+          # Debug tags are ignored.
+          LATEST_TAG=$(
+            git tag -l 'v[0-9]*.[0-9]*.[0-9]*' \
+              | grep -v 'debug' \
+              | sort -V \
+              | tail -n 1 || true
+          )
 
           if [ -z "$LATEST_TAG" ]; then
             LATEST_TAG="v0.0.0"
@@ -126,17 +152,24 @@ jobs:
                 PA=$((PA + 1))
                 ;;
             esac
+
             NEW_VERSION="${MA}.${MI}.${PA}"
           fi
 
-          # Calculate integer versionCode using wider multipliers (supports minor/patch up to 999)
-          # Format: MA * 1,000,000 + MI * 1,000 + PA (e.g., 1.2.3 -> 1002003)
-          NEW_CODE=$(( MA * 1000000 + MI * 1000 + PA ))
+          # Version code format:
+          # MA * 1,000,000 + MI * 1,000 + PA
+          #
+          # Example:
+          # 1.2.3 -> 1002003
+          NEW_CODE=$((MA * 1000000 + MI * 1000 + PA))
+
           if [ "$NEW_CODE" -eq 0 ]; then
             NEW_CODE=1
           fi
 
-          echo "Resolved version: $NEW_VERSION (code: $NEW_CODE)"
+          echo "Resolved version: $NEW_VERSION"
+          echo "Resolved version code: $NEW_CODE"
+
           echo "version_name=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "version_code=$NEW_CODE" >> "$GITHUB_OUTPUT"
 
@@ -149,6 +182,9 @@ jobs:
 
           VER_NAME="${{ steps.version.outputs.version_name }}"
           VER_CODE="${{ steps.version.outputs.version_code }}"
+
+          echo "Building Zonic $VER_NAME (code $VER_CODE)"
+          echo "Build type: $BUILD_TYPE"
 
           if [ "$BUILD_TYPE" = "debug" ]; then
             ./gradlew assembleDebug \
@@ -177,17 +213,33 @@ jobs:
           set -euo pipefail
 
           if [ "$BUILD_TYPE" = "debug" ]; then
-            APK=$(find app/build/outputs -type f -name "*debug*.apk" | head -n 1 || true)
+            APK=$(
+              find app/build/outputs \
+                -type f \
+                -name "*debug*.apk" \
+                | head -n 1 || true
+            )
           else
-            APK=$(find app/build/outputs -type f -name "*release*.apk" | head -n 1 || true)
+            APK=$(
+              find app/build/outputs \
+                -type f \
+                -name "*release*.apk" \
+                | head -n 1 || true
+            )
+          fi
+
+          # Fallback: find any APK
+          if [ -z "$APK" ]; then
+            APK=$(
+              find app/build/outputs \
+                -type f \
+                -name "*.apk" \
+                | head -n 1 || true
+            )
           fi
 
           if [ -z "$APK" ]; then
-            APK=$(find app/build/outputs -type f -name "*.apk" | head -n 1 || true)
-          fi
-
-          if [ -z "$APK" ]; then
-            echo "No APK found."
+            echo "ERROR: No APK found."
             exit 1
           fi
 
@@ -198,7 +250,11 @@ jobs:
           fi
 
           TARGET_PATH="$(dirname "$APK")/$TARGET_NAME"
+
           mv "$APK" "$TARGET_PATH"
+
+          echo "APK found: $APK"
+          echo "APK renamed to: $TARGET_PATH"
 
           echo "apk_name=$TARGET_NAME" >> "$GITHUB_OUTPUT"
           echo "apk_path=$TARGET_PATH" >> "$GITHUB_OUTPUT"
@@ -222,13 +278,25 @@ jobs:
 
           APK_PATH="${{ steps.find-apk.outputs.apk_path }}"
 
-          if gh release view "$TAG" --repo "${{ env.SOURCE_REPO }}" >/dev/null 2>&1; then
+          echo "Release tag: $TAG"
+          echo "APK: $APK_PATH"
+
+          if gh release view "$TAG" \
+              --repo "${{ env.SOURCE_REPO }}" >/dev/null 2>&1; then
+
+            echo "Release already exists. Updating APK..."
+
             gh release upload "$TAG" "$APK_PATH" \
               --repo "${{ env.SOURCE_REPO }}" \
               --clobber
+
           else
+
+            echo "Creating new release..."
+
             gh release create "$TAG" "$APK_PATH" \
               --repo "${{ env.SOURCE_REPO }}" \
               -t "$TITLE" \
               -n "$BODY"
+
           fi
