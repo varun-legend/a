@@ -1,4 +1,4 @@
-Name: 🚀 Cross-Repo Android Release Pipeline (Zonic)
+name: 🚀 Cross-Repo Android Release Pipeline (Zonic)
 
 on:
   repository_dispatch:
