@@ -66,20 +66,32 @@ jobs:
 
       - name: 📱 Setup Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          accept-android-sdk-licenses: true
+          log-accepted-android-sdk-licenses: false
+          packages: ""
 
       - name: 📦 Install Android SDK 37
+        shell: bash
         run: |
           set -euo pipefail
 
+          echo "Android SDK: $ANDROID_SDK_ROOT"
+
+          echo "Accepting Android SDK licenses..."
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+
+          echo "Installing required Android SDK packages..."
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-37" \
             "build-tools;37.0.0"
 
-          yes | sdkmanager --licenses >/dev/null || true
+          echo "Accepting any newly requested licenses..."
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
 
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          echo "Installed SDK packages:"
+          sdkmanager --list_installed
 
       - name: ⚡ Setup Gradle cache
         uses: gradle/actions/setup-gradle@v6
@@ -111,11 +123,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Fetch all tags from remote
           git fetch --tags origin || true
 
-          # Find the latest release version tag matching vX.Y.Z
-          # Debug tags are ignored.
           LATEST_TAG=$(
             git tag -l 'v[0-9]*.[0-9]*.[0-9]*' \
               | grep -v 'debug' \
@@ -156,11 +165,9 @@ jobs:
             NEW_VERSION="${MA}.${MI}.${PA}"
           fi
 
-          # Version code format:
+          # Version code:
           # MA * 1,000,000 + MI * 1,000 + PA
-          #
-          # Example:
-          # 1.2.3 -> 1002003
+          # Example: 1.2.3 -> 1002003
           NEW_CODE=$((MA * 1000000 + MI * 1000 + PA))
 
           if [ "$NEW_CODE" -eq 0 ]; then
@@ -183,7 +190,8 @@ jobs:
           VER_NAME="${{ steps.version.outputs.version_name }}"
           VER_CODE="${{ steps.version.outputs.version_code }}"
 
-          echo "Building Zonic $VER_NAME (code $VER_CODE)"
+          echo "Building Zonic $VER_NAME"
+          echo "Version code: $VER_CODE"
           echo "Build type: $BUILD_TYPE"
 
           if [ "$BUILD_TYPE" = "debug" ]; then
@@ -228,7 +236,6 @@ jobs:
             )
           fi
 
-          # Fallback: find any APK
           if [ -z "$APK" ]; then
             APK=$(
               find app/build/outputs \
