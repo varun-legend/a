@@ -1,4 +1,4 @@
-name: 🚀 Cross-Repo Android Release Pipeline (Zonic)
+Name: 🚀 Cross-Repo Android Release Pipeline (Zonic)
 
 on:
   repository_dispatch:
@@ -38,7 +38,7 @@ env:
 jobs:
   build-and-publish:
     name: Build • Release
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
 
     env:
       RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
@@ -60,8 +60,9 @@ jobs:
 
       - name: 🏗️ Setup x86_64 Emulation for Android Build Tools
         run: |
+          sudo dpkg --add-architecture amd64
           sudo apt-get update
-          sudo apt-get install -y qemu-user-static binfmt-support
+          sudo apt-get install -y qemu-user-static binfmt-support libc6:amd64
           # Configures the Linux kernel to route x86_64 binaries through QEMU
           sudo update-binfmts --enable
 
