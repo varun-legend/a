@@ -51,7 +51,7 @@ jobs:
 
     steps:
       - name: 📁 Checkout source repo (Zonic)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           repository: ${{ env.SOURCE_REPO }}
           token: ${{ secrets.PAT }}
@@ -59,36 +59,20 @@ jobs:
           persist-credentials: false
 
       - name: 🔧 Setup Temurin JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
 
       - name: 📱 Setup Android SDK
-        uses: android-actions/setup-android@v4
+        uses: android-actions/setup-android@v3
         with:
           accept-android-sdk-licenses: true
           log-accepted-android-sdk-licenses: false
-          packages: ""
-
-      - name: 📦 Install Android SDK 37
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "Android SDK: $ANDROID_SDK_ROOT"
-
-          echo "Accepting Android SDK licenses..."
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
-
-          echo "Installing required Android SDK packages..."
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-37" \
-            "build-tools;37.0.0"
+          packages: "platform-tools platforms;android-34 build-tools;34.0.0"
 
       - name: ⚡ Setup Gradle cache
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@v3
         with:
           cache-encryption-key: ${{ env.GRADLE_ENCRYPTION_KEY }}
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
@@ -120,8 +104,7 @@ jobs:
           git fetch --tags origin || true
 
           LATEST_TAG=$(
-            git tag -l 'v[0-9]*.[0-9]*.[0-9]*' \
-              | grep -v 'debug' \
+            (git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | grep -v 'debug' || true) \
               | sort -V \
               | tail -n 1 || true
           )
@@ -134,9 +117,9 @@ jobs:
 
           IFS='.' read -r MA MI PA <<< "$TAG_CLEAN"
 
-          MA=$(printf '%s' "${MA:-0}" | grep -oE '^[0-9]+' || echo 0)
-          MI=$(printf '%s' "${MI:-0}" | grep -oE '^[0-9]+' || echo 0)
-          PA=$(printf '%s' "${PA:-0}" | grep -oE '^[0-9]+' || echo 0)
+          MA=$(printf '%s' "${MA:-0}" | (grep -oE '^[0-9]+' || echo 0))
+          MI=$(printf '%s' "${MI:-0}" | (grep -oE '^[0-9]+' || echo 0))
+          PA=$(printf '%s' "${PA:-0}" | (grep -oE '^[0-9]+' || echo 0))
 
           if [ "$BUILD_TYPE" != "release" ]; then
             NEW_VERSION="${MA}.${MI}.${PA}"
@@ -159,9 +142,6 @@ jobs:
             NEW_VERSION="${MA}.${MI}.${PA}"
           fi
 
-          # Version code:
-          # MA * 1,000,000 + MI * 1,000 + PA
-          # Example: 1.2.3 -> 1002003
           NEW_CODE=$((MA * 1000000 + MI * 1000 + PA))
 
           if [ "$NEW_CODE" -eq 0 ]; then
@@ -195,7 +175,7 @@ jobs:
               --configuration-cache \
               --build-cache
           else
-            RELEASE_STORE_FILE="$KEYSTORE_PATH" \
+            RELEASE_STORE_FILE="${KEYSTORE_PATH:-}" \
             RELEASE_KEY_ALIAS="$RELEASE_KEY_ALIAS" \
             RELEASE_STORE_PASSWORD="$RELEASE_STORE_PASSWORD" \
             RELEASE_KEY_PASSWORD="$RELEASE_KEY_PASSWORD" \
@@ -216,26 +196,17 @@ jobs:
 
           if [ "$BUILD_TYPE" = "debug" ]; then
             APK=$(
-              find app/build/outputs \
-                -type f \
-                -name "*debug*.apk" \
-                | head -n 1 || true
+              find app/build/outputs -type f -name "*debug*.apk" | head -n 1 || true
             )
           else
             APK=$(
-              find app/build/outputs \
-                -type f \
-                -name "*release*.apk" \
-                | head -n 1 || true
+              find app/build/outputs -type f -name "*release*.apk" | head -n 1 || true
             )
           fi
 
           if [ -z "$APK" ]; then
             APK=$(
-              find app/build/outputs \
-                -type f \
-                -name "*.apk" \
-                | head -n 1 || true
+              find app/build/outputs -type f -name "*.apk" | head -n 1 || true
             )
           fi
 
@@ -282,22 +253,10 @@ jobs:
           echo "Release tag: $TAG"
           echo "APK: $APK_PATH"
 
-          if gh release view "$TAG" \
-              --repo "${{ env.SOURCE_REPO }}" >/dev/null 2>&1; then
-
+          if gh release view "$TAG" --repo "${{ env.SOURCE_REPO }}" >/dev/null 2>&1; then
             echo "Release already exists. Updating APK..."
-
-            gh release upload "$TAG" "$APK_PATH" \
-              --repo "${{ env.SOURCE_REPO }}" \
-              --clobber
-
+            gh release upload "$TAG" "$APK_PATH" --repo "${{ env.SOURCE_REPO }}" --clobber
           else
-
             echo "Creating new release..."
-
-            gh release create "$TAG" "$APK_PATH" \
-              --repo "${{ env.SOURCE_REPO }}" \
-              -t "$TITLE" \
-              -n "$BODY"
-
+            gh release create "$TAG" "$APK_PATH" --repo "${{ env.SOURCE_REPO }}" -t "$TITLE" -n "$BODY"
           fi
