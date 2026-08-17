@@ -41,7 +41,6 @@ permissions:
 
 env:
   SOURCE_REPO: "varun-legend/Zonic"
-  GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:+UseG1GC"
 
 jobs:
   build-and-publish:
@@ -93,43 +92,153 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            /home/runner/.android/sdk/platforms/android-37
-            /home/runner/.android/sdk/build-tools/37.0.0
+            /home/runner/.android/sdk/platforms
+            /home/runner/.android/sdk/build-tools
             /home/runner/.android/sdk/platform-tools
-          key: android-sdk-37-37.0.0-${{ runner.os }}-${{ runner.arch }}
+          key: android-sdk-37-${{ runner.os }}-${{ runner.arch }}
 
-      - name: 📱 Setup Android SDK
+      - name: 📱 Setup Android SDK tools
         uses: android-actions/setup-android@v4
         with:
           accept-android-sdk-licenses: true
           log-accepted-android-sdk-licenses: false
-          packages: "platform-tools platforms;android-37 build-tools;37.0.0"
+          packages: ""
 
-      - name: 🔎 Verify Android SDK
+      - name: 🔎 Resolve and install Android 37 SDK
+        shell: bash
         run: |
           set -euo pipefail
 
+          SDKMANAGER="$(command -v sdkmanager)"
+
+          echo "SDKMANAGER=$SDKMANAGER"
           echo "ANDROID_HOME=${ANDROID_HOME:-}"
           echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-}"
 
           echo
-          echo "Installed Android SDK packages:"
-          sdkmanager --list_installed || true
+          echo "Available Android SDK platforms:"
+          sdkmanager --list | sed -n '/Available Packages:/,/Available Updates:/p' | grep -E 'platforms;|system-images;' || true
 
           echo
-          echo "Checking Android 37 platform..."
-          test -d "${ANDROID_SDK_ROOT}/platforms/android-37"
+          echo "Searching for API 37 platform package..."
 
-          echo "Android 37 platform found."
+          PLATFORM_PACKAGE="$(
+            sdkmanager --list \
+              | awk '
+                  /Available Packages:/ { in_available = 1; next }
+                  /Available Updates:/ { in_available = 0 }
+                  in_available && $1 ~ /^platforms;/ && $1 ~ /37/ {
+                    print $1
+                  }
+                ' \
+              | head -n 1
+          )"
+
+          if [ -z "$PLATFORM_PACKAGE" ]; then
+            echo "ERROR: Could not find an Android SDK platform package for API 37."
+            echo
+            echo "Matching SDK entries:"
+            sdkmanager --list | grep -iE 'cinnamon|platform.*37|37.*platform' || true
+            exit 1
+          fi
+
+          echo "Resolved platform package: $PLATFORM_PACKAGE"
 
           echo
-          echo "Checking Build Tools..."
-          test -d "${ANDROID_SDK_ROOT}/build-tools/37.0.0"
+          echo "Searching for latest Android 37 Build Tools..."
 
-          echo "Build Tools 37.0.0 found."
+          BUILD_TOOLS_PACKAGE="$(
+            sdkmanager --list \
+              | awk '
+                  /Available Packages:/ { in_available = 1; next }
+                  /Available Updates:/ { in_available = 0 }
+                  in_available && $1 ~ /^build-tools;37\./ {
+                    print $1
+                  }
+                ' \
+              | sort -V \
+              | tail -n 1
+          )"
+
+          if [ -z "$BUILD_TOOLS_PACKAGE" ]; then
+            echo "ERROR: Could not find Android 37 Build Tools."
+            echo
+            echo "Matching Build Tools entries:"
+            sdkmanager --list | grep -iE 'build-tools;37\.' || true
+            exit 1
+          fi
+
+          echo "Resolved Build Tools package: $BUILD_TOOLS_PACKAGE"
 
           echo
-          echo "Android SDK verification passed."
+          echo "Installing:"
+          echo "  $PLATFORM_PACKAGE"
+          echo "  $BUILD_TOOLS_PACKAGE"
+
+          sdkmanager "$PLATFORM_PACKAGE" "$BUILD_TOOLS_PACKAGE"
+
+          echo
+          echo "Installed SDK packages:"
+          sdkmanager --list_installed | grep -E 'platforms;|build-tools;' || true
+
+      - name: ✅ Verify Android SDK 37
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/.android/sdk}}"
+
+          echo "SDK root: $SDK_ROOT"
+
+          echo
+          echo "Platforms:"
+          find "$SDK_ROOT/platforms" -maxdepth 1 -mindepth 1 -type d -print 2>/dev/null || true
+
+          echo
+          echo "Build Tools:"
+          find "$SDK_ROOT/build-tools" -maxdepth 1 -mindepth 1 -type d -print 2>/dev/null || true
+
+          echo
+          echo "Checking API 37 platform..."
+
+          API37_PLATFORM="$(
+            find "$SDK_ROOT/platforms" \
+              -maxdepth 1 \
+              -mindepth 1 \
+              -type d \
+              -name '*37*' \
+              | head -n 1
+          )"
+
+          if [ -z "$API37_PLATFORM" ]; then
+            echo "ERROR: Android API 37 platform was not installed."
+            exit 1
+          fi
+
+          echo "API 37 platform: $API37_PLATFORM"
+
+          echo
+          echo "Checking Android 37 Build Tools..."
+
+          API37_BUILD_TOOLS="$(
+            find "$SDK_ROOT/build-tools" \
+              -maxdepth 1 \
+              -mindepth 1 \
+              -type d \
+              -name '37.*' \
+              | sort -V \
+              | tail -n 1
+          )"
+
+          if [ -z "$API37_BUILD_TOOLS" ]; then
+            echo "ERROR: Android 37 Build Tools were not installed."
+            exit 1
+          fi
+
+          echo "Build Tools: $API37_BUILD_TOOLS"
+
+          echo
+          echo "Android SDK 37 verification passed."
 
       - name: ⚡ Setup Gradle cache
         uses: gradle/actions/setup-gradle@v6
