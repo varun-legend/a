@@ -41,6 +41,7 @@ permissions:
 
 env:
   SOURCE_REPO: "varun-legend/Zonic"
+  GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:+UseG1GC"
 
 jobs:
   build-and-publish:
@@ -73,8 +74,11 @@ jobs:
       - name: 📦 Install x86_64 Libraries
         run: |
           sudo dpkg --add-architecture amd64
-          sudo apt-get update
-          sudo apt-get install -y libc6:amd64 libstdc++6:amd64 zlib1g:amd64
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libc6:amd64 \
+            libstdc++6:amd64 \
+            zlib1g:amd64
 
       - name: 🔧 Setup Temurin JDK 21
         uses: actions/setup-java@v5
@@ -82,12 +86,41 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      - name: ⚡ Cache Android SDK
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/lib/android/sdk/platforms/android-37
+            /usr/local/lib/android/sdk/build-tools
+          key: android-sdk-37-${{ runner.os }}-${{ runner.arch }}
+
       - name: 📱 Setup Android SDK
         uses: android-actions/setup-android@v4
         with:
           accept-android-sdk-licenses: true
           log-accepted-android-sdk-licenses: false
-          packages: "platform-tools platforms;android-34 build-tools;34.0.0"
+          packages: |
+            platform-tools
+            platforms;android-37
+            build-tools;37.0.0
+
+      - name: 🔎 Verify Android SDK
+        run: |
+          set -euo pipefail
+
+          echo "ANDROID_HOME=${ANDROID_HOME:-}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-}"
+
+          echo "Installed platforms:"
+          sdkmanager --list_installed | grep -E 'platforms;android-37' || true
+
+          echo
+          echo "Checking android-37..."
+          test -d "${ANDROID_SDK_ROOT}/platforms/android-37"
+
+          echo
+          echo "Checking Build Tools..."
+          ls -la "${ANDROID_SDK_ROOT}/build-tools"
 
       - name: ⚡ Setup Gradle cache
         uses: gradle/actions/setup-gradle@v6
@@ -214,17 +247,26 @@ jobs:
 
           if [ "$BUILD_TYPE" = "debug" ]; then
             APK=$(
-              find app/build/outputs -type f -name "*debug*.apk" | head -n 1 || true
+              find app/build/outputs \
+                -type f \
+                -name "*debug*.apk" \
+                | head -n 1 || true
             )
           else
             APK=$(
-              find app/build/outputs -type f -name "*release*.apk" | head -n 1 || true
+              find app/build/outputs \
+                -type f \
+                -name "*release*.apk" \
+                | head -n 1 || true
             )
           fi
 
           if [ -z "$APK" ]; then
             APK=$(
-              find app/build/outputs -type f -name "*.apk" | head -n 1 || true
+              find app/build/outputs \
+                -type f \
+                -name "*.apk" \
+                | head -n 1 || true
             )
           fi
 
@@ -273,8 +315,13 @@ jobs:
 
           if gh release view "$TAG" --repo "${{ env.SOURCE_REPO }}" >/dev/null 2>&1; then
             echo "Release already exists. Updating APK..."
-            gh release upload "$TAG" "$APK_PATH" --repo "${{ env.SOURCE_REPO }}" --clobber
+            gh release upload "$TAG" "$APK_PATH" \
+              --repo "${{ env.SOURCE_REPO }}" \
+              --clobber
           else
             echo "Creating new release..."
-            gh release create "$TAG" "$APK_PATH" --repo "${{ env.SOURCE_REPO }}" -t "$TITLE" -n "$BODY"
+            gh release create "$TAG" "$APK_PATH" \
+              --repo "${{ env.SOURCE_REPO }}" \
+              -t "$TITLE" \
+              -n "$BODY"
           fi
