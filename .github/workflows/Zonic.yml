@@ -87,12 +87,6 @@ jobs:
             "platforms;android-37" \
             "build-tools;37.0.0"
 
-          echo "Accepting any newly requested licenses..."
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
-
-          echo "Installed SDK packages:"
-          sdkmanager --list_installed
-
       - name: ⚡ Setup Gradle cache
         uses: gradle/actions/setup-gradle@v6
         with:
