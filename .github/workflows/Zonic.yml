@@ -1,6 +1,13 @@
 name: 🚀 Cross-Repo Android Release Pipeline (Zonic)
 
 on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - '.github/workflows/Zonic.yml'
+
   repository_dispatch:
     types: [zonic]
 
@@ -58,13 +65,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: 🏗️ Setup x86_64 Emulation for Android Build Tools
+      - name: 🏗️ Register x86_64 QEMU Emulation
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: amd64
+
+      - name: 📦 Install x86_64 Libraries
         run: |
           sudo dpkg --add-architecture amd64
           sudo apt-get update
-          sudo apt-get install -y qemu-user-binfmt binfmt-support libc6:amd64
-          # Configures the Linux kernel to route x86_64 binaries through QEMU
-          sudo update-binfmts --enable
+          sudo apt-get install -y libc6:amd64 libstdc++6:amd64 zlib1g:amd64
 
       - name: 🔧 Setup Temurin JDK 21
         uses: actions/setup-java@v5
