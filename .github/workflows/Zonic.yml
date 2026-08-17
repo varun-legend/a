@@ -38,7 +38,7 @@ env:
 jobs:
   build-and-publish:
     name: Build • Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
 
     env:
       RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
