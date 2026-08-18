@@ -69,6 +69,13 @@ jobs:
         uses: docker/setup-qemu-action@v3
         with:
           platforms: amd64
+          cache-image: true
+
+      - name: ⚡ Cache apt packages (amd64 libs)
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-amd64-libs-${{ runner.os }}-${{ runner.arch }}-v1
 
       - name: 📦 Install x86_64 Libraries
         run: |
