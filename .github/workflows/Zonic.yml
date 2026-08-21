@@ -75,27 +75,34 @@ jobs:
         id: apt-cache
         uses: actions/cache/restore@v6.1.0
         with:
-          path: /var/cache/apt/archives
-          key: apt-amd64-libs-${{ runner.os }}-${{ runner.arch }}-v2
+          path: ~/.cache/zonic-apt/*.deb
+          key: apt-amd64-libs-${{ runner.os }}-${{ runner.arch }}-v3
 
       - name: 📦 Install x86_64 Libraries
         run: |
           set -euo pipefail
 
+          APT_ARCHIVE_DIR="$HOME/.cache/zonic-apt"
+          mkdir -p "$APT_ARCHIVE_DIR"
+
           sudo dpkg --add-architecture amd64
           sudo apt-get update -qq
 
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get \
+            -o Dir::Cache::archives="$APT_ARCHIVE_DIR/" \
+            install -y --no-install-recommends \
             libc6:amd64 \
             libstdc++6:amd64 \
             zlib1g:amd64
+
+          chmod -R u+rwX,go+rX "$APT_ARCHIVE_DIR"
 
       - name: 💾 Save apt package cache (amd64 libs)
         if: ${{ success() && steps.apt-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v6.1.0
         with:
-          path: /var/cache/apt/archives
-          key: apt-amd64-libs-${{ runner.os }}-${{ runner.arch }}-v2
+          path: ~/.cache/zonic-apt/*.deb
+          key: apt-amd64-libs-${{ runner.os }}-${{ runner.arch }}-v3
 
       - name: 🔧 Setup Temurin JDK 21
         uses: actions/setup-java@v5.7.0
