@@ -33,7 +33,7 @@ on:
           - debug
 
 concurrency:
-  group: zonic-release-${{ github.repository }}-${{ github.ref_name }}-${{ github.event.client_payload.build_type || github.event.inputs.build_type || 'release' }}
+  group: zonic-arm-release-${{ github.repository }}-${{ github.ref_name }}-${{ github.event.client_payload.build_type || github.event.inputs.build_type || 'release' }}
   cancel-in-progress: true
 
 permissions:
