@@ -154,27 +154,6 @@ jobs:
           echo "version_name=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "version_code=$NEW_CODE" >> "$GITHUB_OUTPUT"
 
-      - name: 🔬 Analyze R8 configuration
-        if: ${{ env.BUILD_TYPE == 'release' }}
-        run: |
-          set -euo pipefail
-          chmod +x ./gradlew
-
-          ./gradlew :app:analyzeReleaseR8Config \
-            --configuration-cache \
-            --build-cache
-
-      - name: 📊 Upload R8 configuration analyzer report
-        if: ${{ always() && env.BUILD_TYPE == 'release' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: r8-config-analyzer-${{ github.run_id }}
-          path: |
-            app/build/reports/r8/r8-config-analyzer-release.html
-            app/build/reports/r8/r8-config-analyzer-release.pb
-          if-no-files-found: warn
-          retention-days: 7
-
       - name: 🧱 Build
         id: build
         run: |
