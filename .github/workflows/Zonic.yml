@@ -173,7 +173,8 @@ jobs:
               -PversionName="$VER_NAME" \
               -PversionCode="$VER_CODE" \
               --configuration-cache \
-              --build-cache
+              --build-cache \
+              --profile
           else
             RELEASE_STORE_FILE="${KEYSTORE_PATH:-}" \
             RELEASE_KEY_ALIAS="$RELEASE_KEY_ALIAS" \
@@ -184,10 +185,20 @@ jobs:
               -PversionCode="$VER_CODE" \
               --configuration-cache \
               --build-cache \
-              --parallel
+              --parallel \
+              --profile
           fi
 
           echo "built=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
+
+      - name: 📊 Upload Gradle build profile
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-build-profile-${{ github.run_id }}
+          path: build/reports/profile/
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: 🔎 Find APK
         id: find-apk
