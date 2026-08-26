@@ -35,9 +35,6 @@ concurrency:
   group: zonic-release-${{ github.repository }}-${{ github.ref_name }}-${{ github.event.client_payload.build_type || github.event.inputs.build_type || 'release' }}
   cancel-in-progress: true
 
-permissions:
-  contents: write
-
 env:
   SOURCE_REPO: "varun-legend/Zonic"
 
@@ -50,7 +47,6 @@ jobs:
       RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
       RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
       RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-      PAT: ${{ secrets.PAT }}
       GRADLE_ENCRYPTION_KEY: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
       BUILD_TYPE: ${{ github.event.client_payload.build_type || github.event.inputs.build_type || 'release' }}
       BUMP: ${{ github.event.client_payload.bump || github.event.inputs.bump || 'patch' }}
@@ -99,8 +95,6 @@ jobs:
         id: version
         run: |
           set -euo pipefail
-
-          git fetch --tags origin || true
 
           LATEST_TAG=$(
             (git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | grep -v 'debug' || true) \
