@@ -178,7 +178,7 @@ jobs:
               -PversionCode="$VER_CODE" \
               --configuration-cache \
               --build-cache \
-              --parallel \
+              --parallel
           fi
 
           echo "built=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
