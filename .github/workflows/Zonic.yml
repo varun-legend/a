@@ -179,19 +179,9 @@ jobs:
               --configuration-cache \
               --build-cache \
               --parallel \
-              --profile
           fi
 
           echo "built=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
-
-      - name: 📊 Upload Gradle build profile
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: gradle-build-profile-${{ github.run_id }}
-          path: build/reports/profile/
-          if-no-files-found: warn
-          retention-days: 7
 
       - name: 🔎 Find APK
         id: find-apk
