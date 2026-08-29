@@ -48,6 +48,7 @@ jobs:
       RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
       RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
       GRADLE_ENCRYPTION_KEY: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+      ZONIC_HMAC_SECRET: ${{ secrets.ZONIC_HMAC_SECRET }}
       BUILD_TYPE: ${{ github.event.client_payload.build_type || github.event.inputs.build_type || 'release' }}
       BUMP: ${{ github.event.client_payload.bump || github.event.inputs.bump || 'patch' }}
 
