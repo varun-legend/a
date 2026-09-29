@@ -31,6 +31,12 @@ on:
           - release
           - debug
 
+      zonic_sha:
+        description: "Exact Zonic commit SHA to build"
+        required: false
+        default: ""
+        type: string
+
 concurrency:
   group: zonic-release-${{ github.repository }}-${{ github.ref_name }}-${{ github.event.client_payload.build_type || github.event.inputs.build_type || 'release' }}
   cancel-in-progress: true
@@ -51,8 +57,313 @@ jobs:
       ZONIC_HMAC_SECRET: ${{ secrets.ZONIC_HMAC_SECRET }}
       BUILD_TYPE: ${{ github.event.client_payload.build_type || github.event.inputs.build_type || 'release' }}
       BUMP: ${{ github.event.client_payload.bump || github.event.inputs.bump || 'patch' }}
+      ZONIC_SHA: ${{ github.event.client_payload.sha || github.event.client_payload.commit_sha || github.event.inputs.zonic_sha || '' }}
 
     steps:
+      - name: 🎯 Resolve source commit
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "repository_dispatch" ] && [ -z "$ZONIC_SHA" ]; then
+            echo "ERROR: repository_dispatch did not provide client_payload.sha"
+            exit 1
+          fi
+
+          if [ -n "$ZONIC_SHA" ]; then
+            if ! printf '%s' "$ZONIC_SHA" | grep -Eq '^[0-9a-fA-F]{40}
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.SOURCE_REPO }}
+          token: ${{ secrets.PAT }}
+          ref: ${{ env.ZONIC_SHA || 'main' }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: ✅ Verify checked-out Zonic commit
+        if: env.ZONIC_SHA != ''
+        run: |
+          set -euo pipefail
+
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+
+          if [ "$ACTUAL_SHA" != "$ZONIC_SHA" ]; then
+            echo "ERROR: Checked out $ACTUAL_SHA instead of $ZONIC_SHA"
+            exit 1
+          fi
+
+          echo "Verified exact Zonic commit: $ACTUAL_SHA"
+
+      - name: 🔧 Setup Temurin JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: ⚡ Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-encryption-key: ${{ env.GRADLE_ENCRYPTION_KEY }}
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
+
+      - name: 🔐 Decode release keystore
+        if: ${{ env.BUILD_TYPE == 'release' }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${{ secrets.RELEASE_STORE_FILE }}" ]; then
+            echo "ERROR: RELEASE_STORE_FILE secret not set"
+            exit 1
+          fi
+
+          KEYSTORE_PATH="$GITHUB_WORKSPACE/keystore.p12"
+
+          printf '%s' "${{ secrets.RELEASE_STORE_FILE }}" \
+            | base64 --decode > "$KEYSTORE_PATH"
+
+          chmod 600 "$KEYSTORE_PATH"
+
+          echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+
+      - name: 🔍 Determine version from Git tags
+        id: version
+        run: |
+          set -euo pipefail
+
+          LATEST_TAG=$(
+            (git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | grep -v 'debug' || true) \
+              | sort -V \
+              | tail -n 1 || true
+          )
+
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG="v0.0.0"
+          fi
+
+          TAG_CLEAN="${LATEST_TAG#v}"
+
+          IFS='.' read -r MA MI PA <<< "$TAG_CLEAN"
+
+          MA=$(printf '%s' "${MA:-0}" | (grep -oE '^[0-9]+' || echo 0))
+          MI=$(printf '%s' "${MI:-0}" | (grep -oE '^[0-9]+' || echo 0))
+          PA=$(printf '%s' "${PA:-0}" | (grep -oE '^[0-9]+' || echo 0))
+
+          if [ "$BUILD_TYPE" != "release" ]; then
+            NEW_VERSION="${MA}.${MI}.${PA}"
+          else
+            case "$BUMP" in
+              major)
+                MA=$((MA + 1))
+                MI=0
+                PA=0
+                ;;
+              minor)
+                MI=$((MI + 1))
+                PA=0
+                ;;
+              *)
+                PA=$((PA + 1))
+                ;;
+            esac
+
+            NEW_VERSION="${MA}.${MI}.${PA}"
+          fi
+
+          NEW_CODE=$((MA * 1000000 + MI * 1000 + PA))
+
+          if [ "$NEW_CODE" -eq 0 ]; then
+            NEW_CODE=1
+          fi
+
+          echo "Resolved version: $NEW_VERSION"
+          echo "Resolved version code: $NEW_CODE"
+
+          echo "version_name=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_code=$NEW_CODE" >> "$GITHUB_OUTPUT"
+
+      - name: 🧱 Build
+        id: build
+        run: |
+          set -euo pipefail
+
+          chmod +x ./gradlew
+
+          VER_NAME="${{ steps.version.outputs.version_name }}"
+          VER_CODE="${{ steps.version.outputs.version_code }}"
+
+          echo "Building Zonic $VER_NAME"
+          echo "Version code: $VER_CODE"
+          echo "Build type: $BUILD_TYPE"
+
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            ./gradlew assembleDebug \
+              -PversionName="$VER_NAME" \
+              -PversionCode="$VER_CODE" \
+              --configuration-cache \
+              --build-cache \
+              --profile
+          else
+            RELEASE_STORE_FILE="${KEYSTORE_PATH:-}" \
+            RELEASE_KEY_ALIAS="$RELEASE_KEY_ALIAS" \
+            RELEASE_STORE_PASSWORD="$RELEASE_STORE_PASSWORD" \
+            RELEASE_KEY_PASSWORD="$RELEASE_KEY_PASSWORD" \
+            ./gradlew assembleRelease \
+              -PversionName="$VER_NAME" \
+              -PversionCode="$VER_CODE" \
+              --configuration-cache \
+              --build-cache \
+              --parallel
+          fi
+
+          echo "built=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
+
+      - name: 🔎 Find APK
+        id: find-apk
+        run: |
+          set -euo pipefail
+
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            APK=$(
+              find app/build/outputs \
+                -type f \
+                -name "*debug*.apk" \
+                | head -n 1 || true
+            )
+          else
+            APK=$(
+              find app/build/outputs \
+                -type f \
+                -name "*release*.apk" \
+                | head -n 1 || true
+            )
+          fi
+
+          if [ -z "$APK" ]; then
+            APK=$(
+              find app/build/outputs \
+                -type f \
+                -name "*.apk" \
+                | head -n 1 || true
+            )
+          fi
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: No APK found."
+            exit 1
+          fi
+
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            TARGET_NAME="Zonic-v${{ steps.version.outputs.version_name }}-debug.apk"
+          else
+            TARGET_NAME="Zonic-v${{ steps.version.outputs.version_name }}.apk"
+          fi
+
+          TARGET_PATH="$(dirname "$APK")/$TARGET_NAME"
+
+          mv "$APK" "$TARGET_PATH"
+
+          echo "APK found: $APK"
+          echo "APK renamed to: $TARGET_PATH"
+
+          echo "apk_name=$TARGET_NAME" >> "$GITHUB_OUTPUT"
+          echo "apk_path=$TARGET_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: 🧾 Create or update GitHub Release & Tag
+        if: ${{ steps.find-apk.outputs.apk_path != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          set -euo pipefail
+
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            TAG="v${{ steps.version.outputs.version_name }}-debug"
+            TITLE="🧪 Debug Release ${TAG}"
+            BODY="Debug release ${TAG} (code ${{ steps.version.outputs.version_code }})"
+          else
+            TAG="v${{ steps.version.outputs.version_name }}"
+            TITLE="📦 Release ${TAG}"
+            BODY="Release ${TAG} (code ${{ steps.version.outputs.version_code }})"
+          fi
+
+          APK_PATH="${{ steps.find-apk.outputs.apk_path }}"
+
+          echo "Release tag: $TAG"
+          echo "APK: $APK_PATH"
+
+          if gh release view "$TAG" --repo "${{ env.SOURCE_REPO }}" >/dev/null 2>&1; then
+            echo "Release already exists. Updating APK..."
+
+            gh release upload \
+              "$TAG" \
+              "$APK_PATH" \
+              --repo "${{ env.SOURCE_REPO }}" \
+              --clobber
+          else
+            echo "Creating new release..."
+
+            gh release create \
+              "$TAG" \
+              "$APK_PATH" \
+              --repo "${{ env.SOURCE_REPO }}" \
+              -t "$TITLE" \
+              -n "$BODY"
+          fi
+
+      - name: 📊 Mark Zonic commit result
+        if: always() && env.ZONIC_SHA != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          set -euo pipefail
+
+          case "${{ job.status }}" in
+            success)
+              STATE="success"
+              DESCRIPTION="Zonic build completed successfully"
+              ;;
+            cancelled)
+              STATE="error"
+              DESCRIPTION="Zonic build was cancelled"
+              ;;
+            *)
+              STATE="failure"
+              DESCRIPTION="Zonic build failed"
+              ;;
+          esac
+
+          gh api \
+            -X POST \
+            "repos/${{ env.SOURCE_REPO }}/statuses/$ZONIC_SHA" \
+            -f state="$STATE" \
+            -f context="Cross-Repo Android Release" \
+            -f description="$DESCRIPTION" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+; then
+              echo "ERROR: ZONIC_SHA must be a 40-character Git commit SHA"
+              exit 1
+            fi
+
+            echo "Building exact Zonic commit: $ZONIC_SHA"
+          else
+            echo "No Zonic SHA supplied; building Zonic main."
+          fi
+
+      - name: 🟡 Mark Zonic commit pending
+        if: env.ZONIC_SHA != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          set -euo pipefail
+
+          gh api \
+            -X POST \
+            "repos/${{ env.SOURCE_REPO }}/statuses/$ZONIC_SHA" \
+            -f state=pending \
+            -f context="Cross-Repo Android Release" \
+            -f description="Zonic build is running" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
       - name: 📁 Checkout source repo (Zonic)
         uses: actions/checkout@v7
         with:
