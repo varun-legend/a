@@ -70,16 +70,6 @@ jobs:
             exit 1
           fi
 
-      - name: 🟡 Mark Zonic commit pending
-        if: env.ZONIC_SHA != ''
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.PAT }}
-        run: |
-          set -euo pipefail
-
-          gh api             -X POST             "repos/${{ env.SOURCE_REPO }}/statuses/$ZONIC_SHA"             -f state=pending             -f context="Cross-Repo Android Release"             -f description="Zonic build is running"             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
       - name: 📁 Checkout source repo (Zonic)
         uses: actions/checkout@v7
         with:
@@ -89,19 +79,28 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: ✅ Verify checked-out Zonic commit
-        if: env.ZONIC_SHA != ''
+      - name: ✅ Resolve and verify checked-out Zonic commit
         run: |
           set -euo pipefail
 
           ACTUAL_SHA="$(git rev-parse HEAD)"
 
-          if [ "$ACTUAL_SHA" != "$ZONIC_SHA" ]; then
+          if [ -n "$ZONIC_SHA" ] && [ "$ACTUAL_SHA" != "$ZONIC_SHA" ]; then
             echo "ERROR: checked out $ACTUAL_SHA instead of $ZONIC_SHA"
             exit 1
           fi
 
-          echo "Verified exact Zonic commit: $ACTUAL_SHA"
+          echo "Zonic commit being built: $ACTUAL_SHA"
+          echo "ZONIC_SHA=$ACTUAL_SHA" >> "$GITHUB_ENV"
+
+      - name: 🟡 Mark Zonic commit pending
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          set -euo pipefail
+
+          gh api -X POST "repos/${{ env.SOURCE_REPO }}/statuses/$ZONIC_SHA" -f state=pending -f context="Cross-Repo Android Release" -f description="Zonic build is running" -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: 🔧 Setup Temurin JDK 21
         uses: actions/setup-java@v5
@@ -319,7 +318,7 @@ jobs:
           fi
 
       - name: 📊 Mark Zonic commit result
-        if: always() && env.ZONIC_SHA != ''
+        if: always()
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.PAT }}
@@ -337,4 +336,4 @@ jobs:
             DESCRIPTION="Zonic build failed"
           fi
 
-          gh api             -X POST             "repos/${{ env.SOURCE_REPO }}/statuses/$ZONIC_SHA"             -f state="$STATE"             -f context="Cross-Repo Android Release"             -f description="$DESCRIPTION"             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          gh api -X POST "repos/${{ env.SOURCE_REPO }}/statuses/$ZONIC_SHA" -f state="$STATE" -f context="Cross-Repo Android Release" -f description="$DESCRIPTION" -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
