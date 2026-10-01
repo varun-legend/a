@@ -37,6 +37,9 @@ on:
         default: ""
         type: string
 
+permissions:
+  contents: read
+
 concurrency:
   group: zonic-release-${{ github.repository }}-${{ github.ref_name }}-${{ github.event.client_payload.build_type || github.event.inputs.build_type || 'release' }}
   cancel-in-progress: true
@@ -116,17 +119,19 @@ jobs:
 
       - name: 🔐 Decode release keystore
         if: ${{ env.BUILD_TYPE == 'release' }}
+        env:
+          RELEASE_STORE_FILE_B64: ${{ secrets.RELEASE_STORE_FILE }}
         run: |
           set -euo pipefail
 
-          if [ -z "${{ secrets.RELEASE_STORE_FILE }}" ]; then
+          if [ -z "$RELEASE_STORE_FILE_B64" ]; then
             echo "ERROR: RELEASE_STORE_FILE secret not set"
             exit 1
           fi
 
           KEYSTORE_PATH="$GITHUB_WORKSPACE/keystore.p12"
 
-          printf '%s' "${{ secrets.RELEASE_STORE_FILE }}" \
+          printf '%s' "$RELEASE_STORE_FILE_B64" \
             | base64 --decode > "$KEYSTORE_PATH"
 
           chmod 600 "$KEYSTORE_PATH"
@@ -309,12 +314,20 @@ jobs:
           else
             echo "Creating new release..."
 
+            if [ "$BUILD_TYPE" = "debug" ]; then
+              RELEASE_FLAGS="--prerelease --latest=false"
+            else
+              RELEASE_FLAGS="--latest"
+            fi
+
             gh release create \
               "$TAG" \
               "$APK_PATH" \
               --repo "${{ env.SOURCE_REPO }}" \
+              --target "$ZONIC_SHA" \
               -t "$TITLE" \
-              -n "$BODY"
+              -n "$BODY" \
+              $RELEASE_FLAGS
           fi
 
       - name: 📊 Mark Zonic commit result
