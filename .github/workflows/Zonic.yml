@@ -96,15 +96,6 @@ jobs:
           echo "Zonic commit being built: $ACTUAL_SHA"
           echo "ZONIC_SHA=$ACTUAL_SHA" >> "$GITHUB_ENV"
 
-      - name: 🟡 Mark Zonic commit pending
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.PAT }}
-        run: |
-          set -euo pipefail
-
-          gh api -X POST "repos/${{ env.SOURCE_REPO }}/statuses/$ZONIC_SHA" -f state=pending -f context="Cross-Repo Android Release" -f description="Zonic build is running" -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
       - name: 🔧 Setup Temurin JDK 21
         uses: actions/setup-java@v5
         with:
@@ -329,24 +320,3 @@ jobs:
               -n "$BODY" \
               $RELEASE_FLAGS
           fi
-
-      - name: 📊 Mark Zonic commit result
-        if: always()
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.PAT }}
-        run: |
-          set -euo pipefail
-
-          if [ "${{ job.status }}" = "success" ]; then
-            STATE="success"
-            DESCRIPTION="Zonic build completed successfully"
-          elif [ "${{ job.status }}" = "cancelled" ]; then
-            STATE="error"
-            DESCRIPTION="Zonic build was cancelled"
-          else
-            STATE="failure"
-            DESCRIPTION="Zonic build failed"
-          fi
-
-          gh api -X POST "repos/${{ env.SOURCE_REPO }}/statuses/$ZONIC_SHA" -f state="$STATE" -f context="Cross-Repo Android Release" -f description="$DESCRIPTION" -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
