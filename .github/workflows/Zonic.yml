@@ -53,23 +53,33 @@ jobs:
     runs-on: ubuntu-26.04
 
     env:
-      RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-      RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
-      RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-      GRADLE_ENCRYPTION_KEY: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
-      ZONIC_HMAC_SECRET: ${{ secrets.ZONIC_HMAC_SECRET }}
       BUILD_TYPE: ${{ github.event.client_payload.build_type || github.event.inputs.build_type || 'release' }}
       BUMP: ${{ github.event.client_payload.bump || github.event.inputs.bump || 'patch' }}
       ZONIC_SHA: ${{ github.event.client_payload.sha || github.event.client_payload.commit_sha || github.event.inputs.zonic_sha || '' }}
 
     steps:
-      - name: 🎯 Require exact source commit for repository dispatch
-        if: github.event_name == 'repository_dispatch'
+      - name: 🧪 Validate inputs
         run: |
           set -euo pipefail
 
-          if [ -z "$ZONIC_SHA" ]; then
-            echo "ERROR: repository_dispatch did not provide a Zonic commit SHA"
+          case "$BUILD_TYPE" in
+            release|debug) ;;
+            *)
+              echo "ERROR: invalid build_type"
+              exit 1
+              ;;
+          esac
+
+          case "$BUMP" in
+            patch|minor|major) ;;
+            *)
+              echo "ERROR: invalid bump"
+              exit 1
+              ;;
+          esac
+
+          if [ -n "$ZONIC_SHA" ] && ! printf '%s' "$ZONIC_SHA" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "ERROR: Zonic SHA must be a full 40-character lowercase hex commit"
             exit 1
           fi
 
@@ -93,6 +103,13 @@ jobs:
             exit 1
           fi
 
+          if [ "$BUILD_TYPE" = "release" ]; then
+            if ! git merge-base --is-ancestor "$ACTUAL_SHA" origin/main; then
+              echo "ERROR: $ACTUAL_SHA is not part of Zonic main; refusing release build"
+              exit 1
+            fi
+          fi
+
           echo "Zonic commit being built: $ACTUAL_SHA"
           echo "ZONIC_SHA=$ACTUAL_SHA" >> "$GITHUB_ENV"
 
@@ -105,7 +122,7 @@ jobs:
       - name: ⚡ Setup Gradle cache
         uses: gradle/actions/setup-gradle@v6
         with:
-          cache-encryption-key: ${{ env.GRADLE_ENCRYPTION_KEY }}
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
 
       - name: 🔐 Decode release keystore
@@ -187,6 +204,11 @@ jobs:
 
       - name: 🧱 Build
         id: build
+        env:
+          RELEASE_KEY_ALIAS: ${{ env.BUILD_TYPE == 'release' && secrets.RELEASE_KEY_ALIAS || '' }}
+          RELEASE_STORE_PASSWORD: ${{ env.BUILD_TYPE == 'release' && secrets.RELEASE_STORE_PASSWORD || '' }}
+          RELEASE_KEY_PASSWORD: ${{ env.BUILD_TYPE == 'release' && secrets.RELEASE_KEY_PASSWORD || '' }}
+          ZONIC_HMAC_SECRET: ${{ secrets.ZONIC_HMAC_SECRET }}
         run: |
           set -euo pipefail
 
@@ -208,9 +230,6 @@ jobs:
               --profile
           else
             RELEASE_STORE_FILE="${KEYSTORE_PATH:-}" \
-            RELEASE_KEY_ALIAS="$RELEASE_KEY_ALIAS" \
-            RELEASE_STORE_PASSWORD="$RELEASE_STORE_PASSWORD" \
-            RELEASE_KEY_PASSWORD="$RELEASE_KEY_PASSWORD" \
             ./gradlew assembleRelease \
               -PversionName="$VER_NAME" \
               -PversionCode="$VER_CODE" \
