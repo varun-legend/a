@@ -41,7 +41,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: zonic-release-${{ github.repository }}-${{ github.ref_name }}-${{ github.event.client_payload.build_type || github.event.inputs.build_type || 'release' }}
+  group: zonic-release-${{ github.repository }}-${{ github.event.client_payload.source_branch || github.event.client_payload.branch || github.event.inputs.zonic_branch || github.ref_name }}-${{ github.event.client_payload.build_type || github.event.inputs.build_type || 'release' }}
   cancel-in-progress: true
 
 env:
