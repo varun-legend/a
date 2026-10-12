@@ -37,6 +37,12 @@ on:
         default: ""
         type: string
 
+      zonic_branch:
+        description: "Exact Zonic source branch to build"
+        required: false
+        default: "main"
+        type: string
+
 permissions:
   contents: read
 
@@ -56,6 +62,7 @@ jobs:
       BUILD_TYPE: ${{ github.event.client_payload.build_type || github.event.inputs.build_type || 'release' }}
       BUMP: ${{ github.event.client_payload.bump || github.event.inputs.bump || 'patch' }}
       ZONIC_SHA: ${{ github.event.client_payload.sha || github.event.client_payload.commit_sha || github.event.inputs.zonic_sha || '' }}
+      ZONIC_BRANCH: ${{ github.event.client_payload.source_branch || github.event.client_payload.branch || github.event.inputs.zonic_branch || 'main' }}
 
     steps:
       - name: 🧪 Validate inputs
@@ -83,12 +90,17 @@ jobs:
             exit 1
           fi
 
+          if ! git check-ref-format --branch "$ZONIC_BRANCH" >/dev/null 2>&1; then
+            echo "ERROR: invalid Zonic source branch"
+            exit 1
+          fi
+
       - name: 📁 Checkout source repo (Zonic)
         uses: actions/checkout@v7
         with:
           repository: ${{ env.SOURCE_REPO }}
           token: ${{ secrets.PAT }}
-          ref: ${{ env.ZONIC_SHA || 'main' }}
+          ref: ${{ env.ZONIC_SHA || env.ZONIC_BRANCH }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -103,13 +115,21 @@ jobs:
             exit 1
           fi
 
-          if [ "$BUILD_TYPE" = "release" ]; then
+          git fetch origin "$ZONIC_BRANCH"
+
+          if ! git merge-base --is-ancestor "$ACTUAL_SHA" "origin/$ZONIC_BRANCH"; then
+            echo "ERROR: $ACTUAL_SHA is not contained in source branch $ZONIC_BRANCH"
+            exit 1
+          fi
+
+          if [ "$BUILD_TYPE" = "release" ] && [ "$ZONIC_BRANCH" = "main" ]; then
             if ! git merge-base --is-ancestor "$ACTUAL_SHA" origin/main; then
-              echo "ERROR: $ACTUAL_SHA is not part of Zonic main; refusing release build"
+              echo "ERROR: production release commit must belong to Zonic main"
               exit 1
             fi
           fi
 
+          echo "Zonic source branch: $ZONIC_BRANCH"
           echo "Zonic commit being built: $ACTUAL_SHA"
           echo "ZONIC_SHA=$ACTUAL_SHA" >> "$GITHUB_ENV"
 
@@ -152,7 +172,7 @@ jobs:
           set -euo pipefail
 
           LATEST_TAG=$(
-            (git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | grep -v 'debug' || true) \
+            (git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true) \
               | sort -V \
               | tail -n 1 || true
           )
@@ -187,7 +207,13 @@ jobs:
                 ;;
             esac
 
-            NEW_VERSION="${MA}.${MI}.${PA}"
+            if [ "$ZONIC_BRANCH" = "main" ]; then
+              NEW_VERSION="${MA}.${MI}.${PA}"
+            else
+              SAFE_BRANCH="$(printf '%s' "$ZONIC_BRANCH" | tr '/_' '--' | tr -cd '[:alnum:].-')"
+              SAFE_BRANCH="${SAFE_BRANCH:-branch}"
+              NEW_VERSION="${MA}.${MI}.${PA}-${SAFE_BRANCH}"
+            fi
           fi
 
           NEW_CODE=$((MA * 1000000 + MI * 1000 + PA))
@@ -298,18 +324,28 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ "$BUILD_TYPE" = "debug" ]; then
+          if [ "$ZONIC_BRANCH" != "main" ]; then
+            SHORT_SHA="${ZONIC_SHA:0:7}"
+            TAG="v${{ steps.version.outputs.version_name }}-${SHORT_SHA}"
+            TITLE="🧪 Branch Release ${TAG}"
+            BODY="Non-production branch release from ${ZONIC_BRANCH} at ${ZONIC_SHA} (code ${{ steps.version.outputs.version_code }}). This is a branch build, not the production latest release."
+            RELEASE_FLAGS="--prerelease --latest=false"
+          elif [ "$BUILD_TYPE" = "debug" ]; then
             TAG="v${{ steps.version.outputs.version_name }}-debug"
             TITLE="🧪 Debug Release ${TAG}"
             BODY="Debug release ${TAG} (code ${{ steps.version.outputs.version_code }})"
+            RELEASE_FLAGS="--prerelease --latest=false"
           else
             TAG="v${{ steps.version.outputs.version_name }}"
             TITLE="📦 Release ${TAG}"
             BODY="Release ${TAG} (code ${{ steps.version.outputs.version_code }})"
+            RELEASE_FLAGS="--latest"
           fi
 
           APK_PATH="${{ steps.find-apk.outputs.apk_path }}"
 
+          echo "Source branch: $ZONIC_BRANCH"
+          echo "Source commit: $ZONIC_SHA"
           echo "Release tag: $TAG"
           echo "APK: $APK_PATH"
 
@@ -323,12 +359,6 @@ jobs:
               --clobber
           else
             echo "Creating new release..."
-
-            if [ "$BUILD_TYPE" = "debug" ]; then
-              RELEASE_FLAGS="--prerelease --latest=false"
-            else
-              RELEASE_FLAGS="--latest"
-            fi
 
             gh release create \
               "$TAG" \
