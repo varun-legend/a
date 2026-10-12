@@ -1,12 +1,6 @@
 name: 🚀 Cross-Repo Android Release Pipeline (Zonic)
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/Zonic.yml'
-
   repository_dispatch:
     types: [zonic]
 
@@ -114,8 +108,6 @@ jobs:
             echo "ERROR: checked out $ACTUAL_SHA instead of $ZONIC_SHA"
             exit 1
           fi
-
-          git fetch origin "$ZONIC_BRANCH"
 
           if ! git merge-base --is-ancestor "$ACTUAL_SHA" "origin/$ZONIC_BRANCH"; then
             echo "ERROR: $ACTUAL_SHA is not contained in source branch $ZONIC_BRANCH"
