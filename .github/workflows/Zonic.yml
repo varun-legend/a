@@ -309,39 +309,6 @@ jobs:
           echo "apk_name=$TARGET_NAME" >> "$GITHUB_OUTPUT"
           echo "apk_path=$TARGET_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: 🗺️ Find R8 mapping
-        id: find-mapping
-        run: |
-          set -euo pipefail
-
-          if [ "$BUILD_TYPE" != "release" ]; then
-            echo "mapping_path=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          MAPPING=$(
-            find app/build/outputs/mapping \
-              -type f \
-              -name "mapping.txt" \
-              2>/dev/null \
-              | head -n 1 || true
-          )
-
-          if [ -z "$MAPPING" ]; then
-            echo "::warning::No R8 mapping.txt found; crash logs from this build cannot be decoded."
-            echo "mapping_path=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          TARGET_PATH="$(dirname "$MAPPING")/Zonic-v${{ steps.version.outputs.version_name }}-mapping.txt"
-
-          cp "$MAPPING" "$TARGET_PATH"
-
-          echo "Mapping found: $MAPPING"
-          echo "Mapping copied to: $TARGET_PATH"
-
-          echo "mapping_path=$TARGET_PATH" >> "$GITHUB_OUTPUT"
-
       - name: 🧾 Create or update GitHub Release & Tag
         if: ${{ steps.find-apk.outputs.apk_path != '' }}
         env:
