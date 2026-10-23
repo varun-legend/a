@@ -175,6 +175,12 @@ jobs:
           distribution: temurin
           java-version: "25"
 
+      - name: Set up Python 3.11 for Fluxora
+        if: ${{ steps.check-release.outputs.should_build == 'true' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: ⚡ Setup Gradle cache
         if: ${{ steps.check-release.outputs.should_build == 'true' }}
         uses: gradle/actions/setup-gradle@v6
