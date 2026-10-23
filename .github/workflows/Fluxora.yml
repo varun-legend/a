@@ -4,6 +4,9 @@ on:
   repository_dispatch:
     types: [fluxora]
 
+  schedule:
+    - cron: "*/15 * * * *"
+
   workflow_dispatch:
     inputs:
       bump:
@@ -126,20 +129,56 @@ jobs:
           echo "Fluxora commit being built: $ACTUAL_SHA"
           echo "FLUXORA_SHA=$ACTUAL_SHA" >> "$GITHUB_ENV"
 
+      - name: 🔎 Check whether this commit needs a release
+        id: check-release
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          set -euo pipefail
+
+          if [ "$GITHUB_EVENT_NAME" != "schedule" ]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          LATEST_RELEASE_TAG=$(
+            gh release list --repo "$SOURCE_REPO" --limit 50 --json tagName,isPrerelease,isLatest \
+              --jq '.[] | select(.isLatest == true and .isPrerelease == false) | .tagName' \
+              | head -n 1 || true
+          )
+
+          if [ -n "$LATEST_RELEASE_TAG" ]; then
+            LATEST_RELEASE_BODY=$(gh release view "$LATEST_RELEASE_TAG" --repo "$SOURCE_REPO" --json body --jq '.body')
+            if printf '%s' "$LATEST_RELEASE_BODY" | grep -Fq "$FLUXORA_SHA"; then
+              echo "Fluxora main commit $FLUXORA_SHA is already the latest production release."
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          echo "Fluxora main has an unreleased commit: $FLUXORA_SHA"
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
+
+      - name: ⏭️ Skip already released commit
+        if: ${{ steps.check-release.outputs.should_build == 'false' }}
+        run: echo "No new Fluxora main commit to release."
+
       - name: 🔧 Setup Temurin JDK 25
+        if: ${{ steps.check-release.outputs.should_build == 'true' }}
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "25"
 
       - name: ⚡ Setup Gradle cache
+        if: ${{ steps.check-release.outputs.should_build == 'true' }}
         uses: gradle/actions/setup-gradle@v6
         with:
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
 
       - name: 🔐 Decode release keystore
-        if: ${{ env.BUILD_TYPE == 'release' }}
+        if: ${{ steps.check-release.outputs.should_build == 'true' && env.BUILD_TYPE == 'release' }}
         env:
           RELEASE_STORE_FILE_B64: ${{ secrets.RELEASE_STORE_FILE }}
         run: |
@@ -156,6 +195,7 @@ jobs:
           echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
 
       - name: 🔍 Determine version from Git tags
+        if: ${{ steps.check-release.outputs.should_build == 'true' }}
         id: version
         run: |
           set -euo pipefail
@@ -203,6 +243,7 @@ jobs:
           echo "version_code=$NEW_CODE" >> "$GITHUB_OUTPUT"
 
       - name: 🧱 Build
+        if: ${{ steps.check-release.outputs.should_build == 'true' }}
         id: build
         env:
           RELEASE_KEY_ALIAS: ${{ env.BUILD_TYPE == 'release' && secrets.RELEASE_KEY_ALIAS || '' }}
@@ -241,6 +282,7 @@ jobs:
           echo "built=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
 
       - name: 🔎 Find APK
+        if: ${{ steps.check-release.outputs.should_build == 'true' }}
         id: find-apk
         run: |
           set -euo pipefail
@@ -275,7 +317,7 @@ jobs:
           echo "apk_path=$TARGET_PATH" >> "$GITHUB_OUTPUT"
 
       - name: 🧾 Create or update GitHub Release & Tag
-        if: ${{ steps.find-apk.outputs.apk_path != '' }}
+        if: ${{ steps.check-release.outputs.should_build == 'true' && steps.find-apk.outputs.apk_path != '' }}
         env:
           GH_TOKEN: ${{ secrets.PAT }}
         run: |
