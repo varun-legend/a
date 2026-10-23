@@ -313,7 +313,6 @@ jobs:
         if: ${{ steps.find-apk.outputs.apk_path != '' }}
         env:
           GH_TOKEN: ${{ secrets.PAT }}
-          MAPPING_PATH: ${{ steps.find-mapping.outputs.mapping_path }}
         run: |
           set -euo pipefail
 
@@ -338,9 +337,6 @@ jobs:
           APK_PATH="${{ steps.find-apk.outputs.apk_path }}"
 
           ASSETS=("$APK_PATH")
-          if [ -n "${MAPPING_PATH:-}" ]; then
-            ASSETS+=("$MAPPING_PATH")
-          fi
 
           echo "Source branch: $ZONIC_BRANCH"
           echo "Source commit: $ZONIC_SHA"
