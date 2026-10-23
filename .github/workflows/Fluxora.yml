@@ -1,0 +1,312 @@
+name: 🚀 Cross-Repo Android Release Pipeline (Fluxora)
+
+on:
+  repository_dispatch:
+    types: [fluxora]
+
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Which part to bump"
+        required: false
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+      build_type:
+        description: "Build variant"
+        required: false
+        default: "release"
+        type: choice
+        options:
+          - release
+          - debug
+
+      fluxora_sha:
+        description: "Exact Fluxora commit SHA to build"
+        required: false
+        default: ""
+        type: string
+
+      fluxora_branch:
+        description: "Exact Fluxora source branch to build"
+        required: false
+        default: "main"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fluxora-release-${{ github.event.client_payload.source_branch || github.event.client_payload.branch || inputs.fluxora_branch || github.ref_name }}-${{ github.event.client_payload.build_type || inputs.build_type || 'release' }}
+  cancel-in-progress: true
+
+env:
+  SOURCE_REPO: "varun-legend/Fluxora"
+
+jobs:
+  build-and-publish:
+    name: Build • Release
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+
+    env:
+      BUILD_TYPE: ${{ github.event.client_payload.build_type || inputs.build_type || 'release' }}
+      BUMP: ${{ github.event.client_payload.bump || inputs.bump || 'patch' }}
+      FLUXORA_SHA: ${{ github.event.client_payload.sha || github.event.client_payload.commit_sha || inputs.fluxora_sha || '' }}
+      FLUXORA_BRANCH: ${{ github.event.client_payload.source_branch || github.event.client_payload.branch || inputs.fluxora_branch || 'main' }}
+
+    steps:
+      - name: 🧪 Validate inputs
+        run: |
+          set -euo pipefail
+
+          case "$BUILD_TYPE" in
+            release|debug) ;;
+            *)
+              echo "ERROR: invalid build_type"
+              exit 1
+              ;;
+          esac
+
+          case "$BUMP" in
+            patch|minor|major) ;;
+            *)
+              echo "ERROR: invalid bump"
+              exit 1
+              ;;
+          esac
+
+          if [ -n "$FLUXORA_SHA" ] && ! printf '%s' "$FLUXORA_SHA" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "ERROR: Fluxora SHA must be a full 40-character lowercase hex commit"
+            exit 1
+          fi
+
+          if ! git check-ref-format --branch "$FLUXORA_BRANCH" >/dev/null 2>&1; then
+            echo "ERROR: invalid Fluxora source branch"
+            exit 1
+          fi
+
+      - name: 📁 Checkout source repo (Fluxora)
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.SOURCE_REPO }}
+          token: ${{ secrets.PAT }}
+          ref: ${{ env.FLUXORA_SHA || env.FLUXORA_BRANCH }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: ✅ Resolve and verify checked-out Fluxora commit
+        run: |
+          set -euo pipefail
+
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+
+          if [ -n "$FLUXORA_SHA" ] && [ "$ACTUAL_SHA" != "$FLUXORA_SHA" ]; then
+            echo "ERROR: checked out $ACTUAL_SHA instead of $FLUXORA_SHA"
+            exit 1
+          fi
+
+          if ! git merge-base --is-ancestor "$ACTUAL_SHA" "origin/$FLUXORA_BRANCH"; then
+            echo "ERROR: $ACTUAL_SHA is not contained in source branch $FLUXORA_BRANCH"
+            exit 1
+          fi
+
+          if [ "$BUILD_TYPE" = "release" ] && [ "$FLUXORA_BRANCH" = "main" ]; then
+            if ! git merge-base --is-ancestor "$ACTUAL_SHA" origin/main; then
+              echo "ERROR: production release commit must belong to Fluxora main"
+              exit 1
+            fi
+          fi
+
+          echo "Fluxora source branch: $FLUXORA_BRANCH"
+          echo "Fluxora commit being built: $ACTUAL_SHA"
+          echo "FLUXORA_SHA=$ACTUAL_SHA" >> "$GITHUB_ENV"
+
+      - name: 🔧 Setup Temurin JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: ⚡ Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
+
+      - name: 🔐 Decode release keystore
+        if: ${{ env.BUILD_TYPE == 'release' }}
+        env:
+          RELEASE_STORE_FILE_B64: ${{ secrets.RELEASE_STORE_FILE }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$RELEASE_STORE_FILE_B64" ]; then
+            echo "ERROR: RELEASE_STORE_FILE secret not set"
+            exit 1
+          fi
+
+          KEYSTORE_PATH="$GITHUB_WORKSPACE/keystore.p12"
+          printf '%s' "$RELEASE_STORE_FILE_B64" | base64 --decode > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+
+      - name: 🔍 Determine version from Git tags
+        id: version
+        run: |
+          set -euo pipefail
+
+          LATEST_TAG=$(
+            (git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true) |
+              sort -V |
+              tail -n 1 || true
+          )
+
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG="v0.0.0"
+          fi
+
+          TAG_CLEAN="${LATEST_TAG#v}"
+          IFS='.' read -r MA MI PA <<< "$TAG_CLEAN"
+          MA=$(printf '%s' "${MA:-0}" | (grep -oE '^[0-9]+' || echo 0))
+          MI=$(printf '%s' "${MI:-0}" | (grep -oE '^[0-9]+' || echo 0))
+          PA=$(printf '%s' "${PA:-0}" | (grep -oE '^[0-9]+' || echo 0))
+
+          if [ "$BUILD_TYPE" != "release" ]; then
+            NEW_VERSION="${MA}.${MI}.${PA}"
+          else
+            case "$BUMP" in
+              major) MA=$((MA + 1)); MI=0; PA=0 ;;
+              minor) MI=$((MI + 1)); PA=0 ;;
+              *) PA=$((PA + 1)) ;;
+            esac
+
+            if [ "$FLUXORA_BRANCH" = "main" ]; then
+              NEW_VERSION="${MA}.${MI}.${PA}"
+            else
+              SAFE_BRANCH="$(printf '%s' "$FLUXORA_BRANCH" | tr '/_' '--' | tr -cd '[:alnum:].-')"
+              SAFE_BRANCH="${SAFE_BRANCH:-branch}"
+              NEW_VERSION="${MA}.${MI}.${PA}-${SAFE_BRANCH}"
+            fi
+          fi
+
+          NEW_CODE=$((MA * 1000000 + MI * 1000 + PA))
+          if [ "$NEW_CODE" -eq 0 ]; then NEW_CODE=1; fi
+
+          echo "Resolved version: $NEW_VERSION"
+          echo "Resolved version code: $NEW_CODE"
+          echo "version_name=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_code=$NEW_CODE" >> "$GITHUB_OUTPUT"
+
+      - name: 🧱 Build
+        id: build
+        env:
+          RELEASE_KEY_ALIAS: ${{ env.BUILD_TYPE == 'release' && secrets.RELEASE_KEY_ALIAS || '' }}
+          RELEASE_STORE_PASSWORD: ${{ env.BUILD_TYPE == 'release' && secrets.RELEASE_STORE_PASSWORD || '' }}
+          RELEASE_KEY_PASSWORD: ${{ env.BUILD_TYPE == 'release' && secrets.RELEASE_KEY_PASSWORD || '' }}
+          FLUXORA_HMAC_SECRET: ${{ secrets.FLUXORA_HMAC_SECRET || secrets.ZONIC_HMAC_SECRET || '' }}
+        run: |
+          set -euo pipefail
+
+          chmod +x ./gradlew
+
+          VER_NAME="${{ steps.version.outputs.version_name }}"
+          VER_CODE="${{ steps.version.outputs.version_code }}"
+
+          echo "Building Fluxora $VER_NAME"
+          echo "Version code: $VER_CODE"
+          echo "Build type: $BUILD_TYPE"
+
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            ./gradlew assembleDebug \
+              -PversionName="$VER_NAME" \
+              -PversionCode="$VER_CODE" \
+              --configuration-cache \
+              --build-cache \
+              --profile
+          else
+            RELEASE_STORE_FILE="${KEYSTORE_PATH:-}" \
+              ./gradlew assembleRelease \
+              -PversionName="$VER_NAME" \
+              -PversionCode="$VER_CODE" \
+              --configuration-cache \
+              --build-cache \
+              --parallel
+          fi
+
+          echo "built=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
+
+      - name: 🔎 Find APK
+        id: find-apk
+        run: |
+          set -euo pipefail
+
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            APK=$(find app/build/outputs -type f -name "*debug*.apk" | head -n 1 || true)
+          else
+            APK=$(find app/build/outputs -type f -name "*release*.apk" | head -n 1 || true)
+          fi
+
+          if [ -z "$APK" ]; then
+            APK=$(find app/build/outputs -type f -name "*.apk" | head -n 1 || true)
+          fi
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: No APK found."
+            exit 1
+          fi
+
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            TARGET_NAME="Fluxora-v${{ steps.version.outputs.version_name }}-debug.apk"
+          else
+            TARGET_NAME="Fluxora-v${{ steps.version.outputs.version_name }}.apk"
+          fi
+
+          TARGET_PATH="$(dirname "$APK")/$TARGET_NAME"
+          mv "$APK" "$TARGET_PATH"
+
+          echo "APK found: $APK"
+          echo "APK renamed to: $TARGET_PATH"
+          echo "apk_name=$TARGET_NAME" >> "$GITHUB_OUTPUT"
+          echo "apk_path=$TARGET_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: 🧾 Create or update GitHub Release & Tag
+        if: ${{ steps.find-apk.outputs.apk_path != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          set -euo pipefail
+
+          if [ "$FLUXORA_BRANCH" != "main" ]; then
+            SHORT_SHA="${FLUXORA_SHA:0:7}"
+            TAG="v${{ steps.version.outputs.version_name }}-${SHORT_SHA}"
+            TITLE="🧪 Branch Release ${TAG}"
+            BODY="Non-production branch release from ${FLUXORA_BRANCH} at ${FLUXORA_SHA} (code ${{ steps.version.outputs.version_code }}). This is not the production latest release."
+            RELEASE_FLAGS="--prerelease --latest=false"
+          elif [ "$BUILD_TYPE" = "debug" ]; then
+            TAG="v${{ steps.version.outputs.version_name }}-debug"
+            TITLE="🧪 Debug Release ${TAG}"
+            BODY="Fluxora debug release ${TAG} (code ${{ steps.version.outputs.version_code }})."
+            RELEASE_FLAGS="--prerelease --latest=false"
+          else
+            TAG="v${{ steps.version.outputs.version_name }}"
+            TITLE="📦 Fluxora Release ${TAG}"
+            BODY="Fluxora release ${TAG} (code ${{ steps.version.outputs.version_code }}). Source commit: ${FLUXORA_SHA}."
+            RELEASE_FLAGS="--latest"
+          fi
+
+          APK_PATH="${{ steps.find-apk.outputs.apk_path }}"
+          echo "Source branch: $FLUXORA_BRANCH"
+          echo "Source commit: $FLUXORA_SHA"
+          echo "Release tag: $TAG"
+          echo "APK: $APK_PATH"
+
+          if gh release view "$TAG" --repo "$SOURCE_REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_PATH" --repo "$SOURCE_REPO" --clobber
+          else
+            gh release create "$TAG" "$APK_PATH" --repo "$SOURCE_REPO" --target "$FLUXORA_SHA" -t "$TITLE" -n "$BODY" $RELEASE_FLAGS
+          fi
