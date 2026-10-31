@@ -146,6 +146,21 @@ jobs:
       - name: 🔐 Generate Cargo lockfile
         run: cargo generate-lockfile --manifest-path app/src/main/rust/brave_adblock/Cargo.toml
 
+      - name: 🔧 Configure Android Rust linkers
+        shell: bash
+        run: |
+          set -euo pipefail
+          ndk="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-${ANDROID_NDK:-}}}"
+          if [[ -z "$ndk" && -n "${ANDROID_HOME:-}" ]]; then
+            ndk="$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -V | tail -1)"
+          fi
+          bin="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          [[ -d "$bin" ]] || { echo "Android NDK toolchain missing: $bin" >&2; exit 1; }
+          {
+            echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$bin/aarch64-linux-android26-clang"
+            echo "CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER=$bin/armv7a-linux-androideabi26-clang"
+          } >> "$GITHUB_ENV"
+
       - name: 🦀 Cache Rust dependencies and build artifacts
         uses: Swatinem/rust-cache@v2
         with:
