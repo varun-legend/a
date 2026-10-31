@@ -143,6 +143,18 @@ jobs:
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
 
+      - name: 🔐 Generate Cargo lockfile
+        run: cargo generate-lockfile --manifest-path app/src/main/rust/brave_adblock/Cargo.toml
+
+      - name: 🦀 Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            app/src/main/rust/brave_adblock -> ../../../../build/intermediates/braveAdblock/${{ env.BUILD_TYPE }}/cargo
+          key: fluxora-${{ env.BUILD_TYPE }}-android-arm64-armv7
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
+
       - name: 🔐 Decode release keystore
         if: ${{ env.BUILD_TYPE == 'release' }}
         env:
