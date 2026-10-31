@@ -1,6 +1,12 @@
 name: 🚀 Cross-Repo Android Release Pipeline (Fluxora)
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/Fluxora.yml
+
   repository_dispatch:
     types: [fluxora]
 
