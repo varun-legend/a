@@ -246,7 +246,7 @@ jobs:
           RELEASE_KEY_ALIAS: ${{ env.BUILD_TYPE == 'release' && secrets.RELEASE_KEY_ALIAS || '' }}
           RELEASE_STORE_PASSWORD: ${{ env.BUILD_TYPE == 'release' && secrets.RELEASE_STORE_PASSWORD || '' }}
           RELEASE_KEY_PASSWORD: ${{ env.BUILD_TYPE == 'release' && secrets.RELEASE_KEY_PASSWORD || '' }}
-          FLUXORA_HMAC_SECRET: ${{ secrets.FLUXORA_HMAC_SECRET || secrets.ZONIC_HMAC_SECRET || '' }}
+          ZONIC_HMAC_SECRET: ${{ secrets.ZONIC_HMAC_SECRET }}
         run: |
           set -euo pipefail
 
