@@ -346,6 +346,8 @@ jobs:
           echo "ARMv7 APK: $APK_ARMV7_PATH"
 
           if gh release view "$TAG" --repo "$SOURCE_REPO" >/dev/null 2>&1; then
+            gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}.apk" --repo "$SOURCE_REPO" --yes >/dev/null 2>&1 || true
+            gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}-debug.apk" --repo "$SOURCE_REPO" --yes >/dev/null 2>&1 || true
             gh release upload "$TAG" "$APK_ARM64_PATH" "$APK_ARMV7_PATH" --repo "$SOURCE_REPO" --clobber
           else
             gh release create "$TAG" "$APK_ARM64_PATH" "$APK_ARMV7_PATH" --repo "$SOURCE_REPO" --target "$FLUXORA_SHA" -t "$TITLE" -n "$BODY" $RELEASE_FLAGS
