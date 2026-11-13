@@ -172,7 +172,7 @@ jobs:
         with:
           workspaces: |
             app/src/main/rust/brave_adblock -> ../../../../build/intermediates/braveAdblock/${{ env.BUILD_TYPE }}/cargo
-          key: fluxora-${{ env.BUILD_TYPE }}-android-arm64-armv7
+          key: fluxora-${{ env.BUILD_TYPE }}-android-abi-flavors
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: true
 
@@ -260,15 +260,15 @@ jobs:
           echo "Build type: $BUILD_TYPE"
 
           if [ "$BUILD_TYPE" = "debug" ]; then
-            ./gradlew assembleDebug \
+            ./gradlew assembleArm64Debug assembleArmv7Debug \
               -PversionName="$VER_NAME" \
               -PversionCode="$VER_CODE" \
               --configuration-cache \
               --build-cache \
-              --profile
+              --parallel
           else
             RELEASE_STORE_FILE="${KEYSTORE_PATH:-}" \
-              ./gradlew assembleRelease \
+              ./gradlew assembleArm64Release assembleArmv7Release \
               -PversionName="$VER_NAME" \
               -PversionCode="$VER_CODE" \
               --configuration-cache \
@@ -278,42 +278,42 @@ jobs:
 
           echo "built=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
 
-      - name: 🔎 Find APK
+      - name: 🔎 Collect ABI APKs
         id: find-apk
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
         run: |
           set -euo pipefail
 
-          if [ "$BUILD_TYPE" = "debug" ]; then
-            APK=$(find app/build/outputs -type f -name "*debug*.apk" | head -n 1 || true)
-          else
-            APK=$(find app/build/outputs -type f -name "*release*.apk" | head -n 1 || true)
-          fi
+          mkdir -p "$RUNNER_TEMP/fluxora-release"
+          VARIANT="$BUILD_TYPE"
+          APK_ARM64="$(find "app/build/outputs/apk/arm64/$VARIANT" -maxdepth 1 -type f -name "*.apk" -print -quit)"
+          APK_ARMV7="$(find "app/build/outputs/apk/armv7/$VARIANT" -maxdepth 1 -type f -name "*.apk" -print -quit)"
 
-          if [ -z "$APK" ]; then
-            APK=$(find app/build/outputs -type f -name "*.apk" | head -n 1 || true)
-          fi
-
-          if [ -z "$APK" ]; then
-            echo "ERROR: No APK found."
+          if [ -z "$APK_ARM64" ] || [ -z "$APK_ARMV7" ]; then
+            echo "ERROR: Missing ABI-specific APK output."
+            find app/build/outputs/apk -type f -name "*.apk" -print
             exit 1
           fi
 
-          if [ "$BUILD_TYPE" = "debug" ]; then
-            TARGET_NAME="Fluxora-v${{ steps.version.outputs.version_name }}-debug.apk"
-          else
-            TARGET_NAME="Fluxora-v${{ steps.version.outputs.version_name }}.apk"
-          fi
+          SUFFIX=""
+          if [ "$BUILD_TYPE" = "debug" ]; then SUFFIX="-debug"; fi
+          ARM64_NAME="Fluxora-v${VERSION_NAME}-arm64-v8a${SUFFIX}.apk"
+          ARMV7_NAME="Fluxora-v${VERSION_NAME}-armeabi-v7a${SUFFIX}.apk"
+          ARM64_PATH="$RUNNER_TEMP/fluxora-release/$ARM64_NAME"
+          ARMV7_PATH="$RUNNER_TEMP/fluxora-release/$ARMV7_NAME"
+          cp "$APK_ARM64" "$ARM64_PATH"
+          cp "$APK_ARMV7" "$ARMV7_PATH"
 
-          TARGET_PATH="$(dirname "$APK")/$TARGET_NAME"
-          mv "$APK" "$TARGET_PATH"
-
-          echo "APK found: $APK"
-          echo "APK renamed to: $TARGET_PATH"
-          echo "apk_name=$TARGET_NAME" >> "$GITHUB_OUTPUT"
-          echo "apk_path=$TARGET_PATH" >> "$GITHUB_OUTPUT"
+          echo "ARM64 APK: $ARM64_PATH"
+          echo "ARMv7 APK: $ARMV7_PATH"
+          echo "apk_arm64_path=$ARM64_PATH" >> "$GITHUB_OUTPUT"
+          echo "apk_armv7_path=$ARMV7_PATH" >> "$GITHUB_OUTPUT"
+          echo "apk_arm64_name=$ARM64_NAME" >> "$GITHUB_OUTPUT"
+          echo "apk_armv7_name=$ARMV7_NAME" >> "$GITHUB_OUTPUT"
 
       - name: 🧾 Create or update GitHub Release & Tag
-        if: ${{ steps.find-apk.outputs.apk_path != '' }}
+        if: ${{ steps.find-apk.outputs.apk_arm64_path != '' && steps.find-apk.outputs.apk_armv7_path != '' }}
         env:
           GH_TOKEN: ${{ secrets.PAT }}
         run: |
@@ -337,14 +337,16 @@ jobs:
             RELEASE_FLAGS="--latest"
           fi
 
-          APK_PATH="${{ steps.find-apk.outputs.apk_path }}"
+          APK_ARM64_PATH="${{ steps.find-apk.outputs.apk_arm64_path }}"
+          APK_ARMV7_PATH="${{ steps.find-apk.outputs.apk_armv7_path }}"
           echo "Source branch: $FLUXORA_BRANCH"
           echo "Source commit: $FLUXORA_SHA"
           echo "Release tag: $TAG"
-          echo "APK: $APK_PATH"
+          echo "ARM64 APK: $APK_ARM64_PATH"
+          echo "ARMv7 APK: $APK_ARMV7_PATH"
 
           if gh release view "$TAG" --repo "$SOURCE_REPO" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$APK_PATH" --repo "$SOURCE_REPO" --clobber
+            gh release upload "$TAG" "$APK_ARM64_PATH" "$APK_ARMV7_PATH" --repo "$SOURCE_REPO" --clobber
           else
-            gh release create "$TAG" "$APK_PATH" --repo "$SOURCE_REPO" --target "$FLUXORA_SHA" -t "$TITLE" -n "$BODY" $RELEASE_FLAGS
+            gh release create "$TAG" "$APK_ARM64_PATH" "$APK_ARMV7_PATH" --repo "$SOURCE_REPO" --target "$FLUXORA_SHA" -t "$TITLE" -n "$BODY" $RELEASE_FLAGS
           fi
