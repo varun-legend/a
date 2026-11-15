@@ -160,6 +160,18 @@ jobs:
             ./gradlew lintArm64Release --configuration-cache --build-cache --parallel
           fi
 
+      - name: 📦 Upload Android API compatibility reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fluxora-api-lint-reports-${{ env.BUILD_TYPE }}-${{ github.run_id }}
+          path: |
+            app/build/reports/lint-results-*.html
+            app/build/reports/lint-results-*.sarif
+            app/build/intermediates/lint_intermediate_text_report/**/*.txt
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: 🔐 Generate Cargo lockfile
         run: cargo generate-lockfile --manifest-path app/src/main/rust/brave_adblock/Cargo.toml
 
