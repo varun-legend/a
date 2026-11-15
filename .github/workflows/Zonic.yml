@@ -143,6 +143,17 @@ jobs:
           set -euo pipefail
           bash scripts/prepare-newtube-extractor.sh
 
+      - name: 🛡️ Check Android API compatibility
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            ./gradlew lintDebug --configuration-cache --build-cache
+          else
+            ./gradlew lintRelease --configuration-cache --build-cache
+          fi
+
       - name: 🔐 Decode release keystore
         if: ${{ env.BUILD_TYPE == 'release' }}
         env:
