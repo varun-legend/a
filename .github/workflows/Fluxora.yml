@@ -155,9 +155,9 @@ jobs:
           chmod +x ./gradlew
 
           if [ "$BUILD_TYPE" = "debug" ]; then
-            ./gradlew lintArm64Debug lintArmv7Debug --configuration-cache --build-cache --parallel
+            ./gradlew lintArm64Debug --configuration-cache --build-cache --parallel
           else
-            ./gradlew lintArm64Release lintArmv7Release --configuration-cache --build-cache --parallel
+            ./gradlew lintArm64Release --configuration-cache --build-cache --parallel
           fi
 
       - name: 🔐 Generate Cargo lockfile
@@ -166,9 +166,8 @@ jobs:
       - name: 🦀 Install Android Rust targets once
         run: |
           set -euo pipefail
-          rustup target add aarch64-linux-android armv7-linux-androideabi
+          rustup target add aarch64-linux-android
           rustup target list --installed | grep -Fx aarch64-linux-android
-          rustup target list --installed | grep -Fx armv7-linux-androideabi
 
       - name: 🔧 Configure Android Rust linkers
         shell: bash
@@ -182,7 +181,6 @@ jobs:
           [[ -d "$bin" ]] || { echo "Android NDK toolchain missing: $bin" >&2; exit 1; }
           {
             echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$bin/aarch64-linux-android26-clang"
-            echo "CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER=$bin/armv7a-linux-androideabi26-clang"
           } >> "$GITHUB_ENV"
 
       - name: 🦀 Cache Rust dependencies and build artifacts
@@ -278,7 +276,7 @@ jobs:
           echo "Build type: $BUILD_TYPE"
 
           if [ "$BUILD_TYPE" = "debug" ]; then
-            ./gradlew assembleArm64Debug assembleArmv7Debug \
+            ./gradlew assembleArm64Debug \
               -PversionName="$VER_NAME" \
               -PversionCode="$VER_CODE" \
               --configuration-cache \
@@ -286,7 +284,7 @@ jobs:
               --parallel
           else
             RELEASE_STORE_FILE="${KEYSTORE_PATH:-}" \
-              ./gradlew assembleArm64Release assembleArmv7Release \
+              ./gradlew assembleArm64Release \
               -PversionName="$VER_NAME" \
               -PversionCode="$VER_CODE" \
               --configuration-cache \
@@ -306,9 +304,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/fluxora-release"
           VARIANT="$BUILD_TYPE"
           APK_ARM64="$(find "app/build/outputs/apk/arm64/$VARIANT" -maxdepth 1 -type f -name "*.apk" -print -quit)"
-          APK_ARMV7="$(find "app/build/outputs/apk/armv7/$VARIANT" -maxdepth 1 -type f -name "*.apk" -print -quit)"
 
-          if [ -z "$APK_ARM64" ] || [ -z "$APK_ARMV7" ]; then
+          if [ -z "$APK_ARM64" ]; then
             echo "ERROR: Missing ABI-specific APK output."
             find app/build/outputs/apk -type f -name "*.apk" -print
             exit 1
@@ -317,21 +314,15 @@ jobs:
           SUFFIX=""
           if [ "$BUILD_TYPE" = "debug" ]; then SUFFIX="-debug"; fi
           ARM64_NAME="Fluxora-v${VERSION_NAME}-arm64-v8a${SUFFIX}.apk"
-          ARMV7_NAME="Fluxora-v${VERSION_NAME}-armeabi-v7a${SUFFIX}.apk"
           ARM64_PATH="$RUNNER_TEMP/fluxora-release/$ARM64_NAME"
-          ARMV7_PATH="$RUNNER_TEMP/fluxora-release/$ARMV7_NAME"
           cp "$APK_ARM64" "$ARM64_PATH"
-          cp "$APK_ARMV7" "$ARMV7_PATH"
 
           echo "ARM64 APK: $ARM64_PATH"
-          echo "ARMv7 APK: $ARMV7_PATH"
           echo "apk_arm64_path=$ARM64_PATH" >> "$GITHUB_OUTPUT"
-          echo "apk_armv7_path=$ARMV7_PATH" >> "$GITHUB_OUTPUT"
           echo "apk_arm64_name=$ARM64_NAME" >> "$GITHUB_OUTPUT"
-          echo "apk_armv7_name=$ARMV7_NAME" >> "$GITHUB_OUTPUT"
 
       - name: 🧾 Create or update GitHub Release & Tag
-        if: ${{ steps.find-apk.outputs.apk_arm64_path != '' && steps.find-apk.outputs.apk_armv7_path != '' }}
+        if: ${{ steps.find-apk.outputs.apk_arm64_path != '' }}
         env:
           GH_TOKEN: ${{ secrets.PAT }}
         run: |
@@ -356,17 +347,17 @@ jobs:
           fi
 
           APK_ARM64_PATH="${{ steps.find-apk.outputs.apk_arm64_path }}"
-          APK_ARMV7_PATH="${{ steps.find-apk.outputs.apk_armv7_path }}"
           echo "Source branch: $FLUXORA_BRANCH"
           echo "Source commit: $FLUXORA_SHA"
           echo "Release tag: $TAG"
           echo "ARM64 APK: $APK_ARM64_PATH"
-          echo "ARMv7 APK: $APK_ARMV7_PATH"
 
           if gh release view "$TAG" --repo "$SOURCE_REPO" >/dev/null 2>&1; then
             gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}.apk" --repo "$SOURCE_REPO" --yes >/dev/null 2>&1 || true
             gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}-debug.apk" --repo "$SOURCE_REPO" --yes >/dev/null 2>&1 || true
-            gh release upload "$TAG" "$APK_ARM64_PATH" "$APK_ARMV7_PATH" --repo "$SOURCE_REPO" --clobber
+            gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}-armeabi-v7a.apk" --repo "$SOURCE_REPO" --yes >/dev/null 2>&1 || true
+            gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}-armeabi-v7a-debug.apk" --repo "$SOURCE_REPO" --yes >/dev/null 2>&1 || true
+            gh release upload "$TAG" "$APK_ARM64_PATH" --repo "$SOURCE_REPO" --clobber
           else
-            gh release create "$TAG" "$APK_ARM64_PATH" "$APK_ARMV7_PATH" --repo "$SOURCE_REPO" --target "$FLUXORA_SHA" -t "$TITLE" -n "$BODY" $RELEASE_FLAGS
+            gh release create "$TAG" "$APK_ARM64_PATH" --repo "$SOURCE_REPO" --target "$FLUXORA_SHA" -t "$TITLE" -n "$BODY" $RELEASE_FLAGS
           fi
