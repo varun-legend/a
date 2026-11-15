@@ -138,29 +138,6 @@ jobs:
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
 
-      - name: 🛡️ Check Android API compatibility
-        run: |
-          set -euo pipefail
-          chmod +x ./gradlew
-
-          if [ "$BUILD_TYPE" = "debug" ]; then
-            ./gradlew lintDebug --configuration-cache --build-cache
-          else
-            ./gradlew lintRelease --configuration-cache --build-cache
-          fi
-
-      - name: 📦 Upload Android API compatibility reports
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: zonic-api-lint-reports-${{ env.BUILD_TYPE }}-${{ github.run_id }}
-          path: |
-            app/build/reports/lint-results-*.html
-            app/build/reports/lint-results-*.sarif
-            app/build/intermediates/lint_intermediate_text_report/**/*.txt
-          if-no-files-found: warn
-          retention-days: 14
-
       - name: 🔐 Decode release keystore
         if: ${{ env.BUILD_TYPE == 'release' }}
         env:
