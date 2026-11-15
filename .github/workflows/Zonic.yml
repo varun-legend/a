@@ -138,11 +138,6 @@ jobs:
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
 
-      - name: 🧩 Prepare extraction-only NewTube libraries
-        run: |
-          set -euo pipefail
-          bash scripts/prepare-newtube-extractor.sh
-
       - name: 🛡️ Check Android API compatibility
         run: |
           set -euo pipefail
