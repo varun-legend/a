@@ -149,6 +149,17 @@ jobs:
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
 
+      - name: 🛡️ Check Android API compatibility
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            ./gradlew lintArm64Debug lintArmv7Debug --configuration-cache --build-cache --parallel
+          else
+            ./gradlew lintArm64Release lintArmv7Release --configuration-cache --build-cache --parallel
+          fi
+
       - name: 🔐 Generate Cargo lockfile
         run: cargo generate-lockfile --manifest-path app/src/main/rust/brave_adblock/Cargo.toml
 
