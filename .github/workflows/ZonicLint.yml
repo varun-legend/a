@@ -1,6 +1,10 @@
 name: 🔎 Android API Compatibility (Zonic)
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ZonicLint.yml"
   schedule:
     - cron: "0 3 * * 1"
   workflow_dispatch:
@@ -17,7 +21,7 @@ env:
 
 jobs:
   build-and-publish:
-    name: Lint • Android API Compatibility
+    name: Validate • Android API Compatibility
     runs-on: ubuntu-26.04
     timeout-minutes: 45
 
@@ -44,21 +48,24 @@ jobs:
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release' }}
 
-      - name: 🧩 Prepare extraction-only NewTube libraries
+      - name: 🧪 Run JVM unit tests
+        id: tests
+        continue-on-error: true
         run: |
           set -euo pipefail
-          bash scripts/prepare-newtube-extractor.sh
+          chmod +x ./gradlew
+          mkdir -p app/build/reports
+          ./gradlew testDebugUnitTest --configuration-cache --build-cache 2>&1 | tee app/build/reports/unit-test-console.log
 
       - name: 🛡️ Run Android API compatibility lint
         id: lint
         continue-on-error: true
         run: |
           set -euo pipefail
-          chmod +x ./gradlew
           mkdir -p app/build/reports
           ./gradlew --continue lintRelease --configuration-cache --build-cache 2>&1 | tee app/build/reports/lint-console.log
 
-      - name: 📦 Upload complete Zonic lint reports
+      - name: 📦 Upload complete Zonic validation reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -67,12 +74,16 @@ jobs:
             app/build/reports/lint-results-*.html
             app/build/reports/lint-results-*.sarif
             app/build/reports/lint-console.log
+            app/build/reports/unit-test-console.log
+            app/build/reports/tests/testDebugUnitTest/**
+            app/build/test-results/testDebugUnitTest/**/*.xml
             app/build/intermediates/lint_intermediate_text_report/**/*.txt
           if-no-files-found: warn
           retention-days: 14
 
-      - name: ❌ Preserve lint failure status
-        if: always() && steps.lint.outcome == 'failure'
+      - name: ❌ Preserve validation failure status
+        if: always() && (steps.tests.outcome == 'failure' || steps.lint.outcome == 'failure')
         run: |
-          echo "Android API compatibility lint failed. Download the artifact for the complete findings."
+          echo "Unit test outcome: ${{ steps.tests.outcome }}"
+          echo "Android API compatibility lint outcome: ${{ steps.lint.outcome }}"
           exit 1
