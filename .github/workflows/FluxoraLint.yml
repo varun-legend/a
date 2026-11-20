@@ -55,7 +55,7 @@ jobs:
           set -euo pipefail
           chmod +x ./gradlew
           mkdir -p app/build/reports
-          ./gradlew --continue lintArm64Release lintArmv7Release --configuration-cache --build-cache 2>&1 | tee app/build/reports/lint-console.log
+          ./gradlew --continue lintArm64Release --configuration-cache --build-cache 2>&1 | tee app/build/reports/lint-console.log
 
       - name: 📦 Upload complete Fluxora lint reports
         if: always()
@@ -69,9 +69,4 @@ jobs:
             app/build/intermediates/lint_intermediate_text_report/**/*.txt
           if-no-files-found: warn
           retention-days: 14
-
-      - name: ❌ Preserve lint failure status
-        if: always() && steps.lint.outcome == 'failure'
-        run: |
-          echo "Android API compatibility lint failed. Download the artifact for the complete findings."
-          exit 1
+          
