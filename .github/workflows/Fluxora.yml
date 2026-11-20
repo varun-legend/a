@@ -52,6 +52,7 @@ concurrency:
 
 env:
   SOURCE_REPO: "varun-legend/Fluxora"
+  WORKFLOW_REPO: "varun-legend/a"
 
 jobs:
   build-and-publish:
@@ -341,12 +342,24 @@ jobs:
           echo "Release tag: $TAG"
           echo "ARM64 APK: $APK_ARM64_PATH"
 
-          if gh release view "$TAG" --repo "$SOURCE_REPO" >/dev/null 2>&1; then
-            gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}.apk" --repo "$SOURCE_REPO" --yes >/dev/null 2>&1 || true
-            gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}-debug.apk" --repo "$SOURCE_REPO" --yes >/dev/null 2>&1 || true
-            gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}-armeabi-v7a.apk" --repo "$SOURCE_REPO" --yes >/dev/null 2>&1 || true
-            gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}-armeabi-v7a-debug.apk" --repo "$SOURCE_REPO" --yes >/dev/null 2>&1 || true
-            gh release upload "$TAG" "$APK_ARM64_PATH" --repo "$SOURCE_REPO" --clobber
+          if [ "$BUILD_TYPE" = "release" ] && [ "$FLUXORA_BRANCH" = "main" ]; then
+            RELEASE_FLAGS=(--latest)
           else
-            gh release create "$TAG" "$APK_ARM64_PATH" --repo "$SOURCE_REPO" --target "$FLUXORA_SHA" -t "$TITLE" -n "$BODY" $RELEASE_FLAGS
+            RELEASE_FLAGS=(--prerelease --latest=false)
           fi
+
+          for RELEASE_REPO in "$SOURCE_REPO" "$WORKFLOW_REPO"; do
+            echo "Publishing $TAG to $RELEASE_REPO"
+
+            if gh release view "$TAG" --repo "$RELEASE_REPO" >/dev/null 2>&1; then
+              gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}.apk" --repo "$RELEASE_REPO" --yes >/dev/null 2>&1 || true
+              gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}-debug.apk" --repo "$RELEASE_REPO" --yes >/dev/null 2>&1 || true
+              gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}-armeabi-v7a.apk" --repo "$RELEASE_REPO" --yes >/dev/null 2>&1 || true
+              gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}-armeabi-v7a-debug.apk" --repo "$RELEASE_REPO" --yes >/dev/null 2>&1 || true
+              gh release upload "$TAG" "$APK_ARM64_PATH" --repo "$RELEASE_REPO" --clobber
+            elif [ "$RELEASE_REPO" = "$SOURCE_REPO" ]; then
+              gh release create "$TAG" "$APK_ARM64_PATH" --repo "$RELEASE_REPO" --target "$FLUXORA_SHA" -t "$TITLE" -n "$BODY" "${RELEASE_FLAGS[@]}"
+            else
+              gh release create "$TAG" "$APK_ARM64_PATH" --repo "$RELEASE_REPO" --target main -t "$TITLE" -n "$BODY" "${RELEASE_FLAGS[@]}"
+            fi
+          done
