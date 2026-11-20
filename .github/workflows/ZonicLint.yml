@@ -65,6 +65,22 @@ jobs:
           mkdir -p app/build/reports
           ./gradlew --continue lintRelease --configuration-cache --build-cache 2>&1 | tee app/build/reports/lint-console.log
 
+      - name: 📊 Generate Compose compiler metrics
+        id: compose-metrics
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p app/build/reports
+          ./gradlew compileReleaseKotlin --configuration-cache --build-cache 2>&1 | tee app/build/reports/compose-compiler-console.log
+
+      - name: 🧩 Analyze Gradle dependencies
+        id: dependencies
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p build/reports app/build/reports
+          ./gradlew buildHealth --configuration-cache --build-cache 2>&1 | tee app/build/reports/dependency-analysis-console.log
+
       - name: 📦 Upload complete Zonic validation reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -75,6 +91,11 @@ jobs:
             app/build/reports/lint-results-*.sarif
             app/build/reports/lint-console.log
             app/build/reports/unit-test-console.log
+            app/build/reports/compose-compiler-console.log
+            app/build/reports/dependency-analysis-console.log
+            app/build/reports/compose-compiler/**
+            build/reports/dependency-analysis/**
+            app/build/reports/dependency-analysis/**
             app/build/reports/tests/testDebugUnitTest/**
             app/build/test-results/testDebugUnitTest/**/*.xml
             app/build/intermediates/lint_intermediate_text_report/**/*.txt
@@ -82,8 +103,10 @@ jobs:
           retention-days: 14
 
       - name: ❌ Preserve validation failure status
-        if: always() && (steps.tests.outcome == 'failure' || steps.lint.outcome == 'failure')
+        if: always() && (steps.tests.outcome == 'failure' || steps.lint.outcome == 'failure' || steps.compose-metrics.outcome == 'failure' || steps.dependencies.outcome == 'failure')
         run: |
           echo "Unit test outcome: ${{ steps.tests.outcome }}"
           echo "Android API compatibility lint outcome: ${{ steps.lint.outcome }}"
+          echo "Compose metrics outcome: ${{ steps.compose-metrics.outcome }}"
+          echo "Dependency analysis outcome: ${{ steps.dependencies.outcome }}"
           exit 1
