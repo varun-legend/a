@@ -252,7 +252,6 @@ jobs:
           RELEASE_KEY_ALIAS: ${{ env.BUILD_TYPE == 'release' && secrets.RELEASE_KEY_ALIAS || '' }}
           RELEASE_STORE_PASSWORD: ${{ env.BUILD_TYPE == 'release' && secrets.RELEASE_STORE_PASSWORD || '' }}
           RELEASE_KEY_PASSWORD: ${{ env.BUILD_TYPE == 'release' && secrets.RELEASE_KEY_PASSWORD || '' }}
-          ZONIC_HMAC_SECRET: ${{ secrets.ZONIC_HMAC_SECRET }}
         run: |
           set -euo pipefail
 
@@ -301,18 +300,16 @@ jobs:
             exit 1
           fi
 
-          SUFFIX=""
-          if [ "$BUILD_TYPE" = "debug" ]; then SUFFIX="-debug"; fi
-          ARM64_NAME="Fluxora-v${VERSION_NAME}-arm64-v8a${SUFFIX}.apk"
-          ARM64_PATH="$RUNNER_TEMP/fluxora-release/$ARM64_NAME"
-          cp "$APK_ARM64" "$ARM64_PATH"
+          APK_NAME="Fluxora-v${VERSION_NAME}.apk"
+          APK_PATH="$RUNNER_TEMP/fluxora-release/$APK_NAME"
+          cp "$APK_ARM64" "$APK_PATH"
 
-          echo "ARM64 APK: $ARM64_PATH"
-          echo "apk_arm64_path=$ARM64_PATH" >> "$GITHUB_OUTPUT"
-          echo "apk_arm64_name=$ARM64_NAME" >> "$GITHUB_OUTPUT"
+          echo "Fluxora APK: $APK_PATH"
+          echo "apk_path=$APK_PATH" >> "$GITHUB_OUTPUT"
+          echo "apk_name=$APK_NAME" >> "$GITHUB_OUTPUT"
 
       - name: 🧾 Create or update GitHub Release & Tag
-        if: ${{ steps.find-apk.outputs.apk_arm64_path != '' }}
+        if: ${{ steps.find-apk.outputs.apk_path != '' }}
         env:
           GH_TOKEN: ${{ secrets.PAT }}
         run: |
@@ -333,11 +330,11 @@ jobs:
             BODY="Fluxora release ${TAG} (code ${{ steps.version.outputs.version_code }})"
           fi
 
-          APK_ARM64_PATH="${{ steps.find-apk.outputs.apk_arm64_path }}"
+          APK_PATH="${{ steps.find-apk.outputs.apk_path }}"
           echo "Source branch: $FLUXORA_BRANCH"
           echo "Source commit: $FLUXORA_SHA"
           echo "Release tag: $TAG"
-          echo "ARM64 APK: $APK_ARM64_PATH"
+          echo "Fluxora APK: $APK_PATH"
 
           if [ "$BUILD_TYPE" = "release" ] && [ "$FLUXORA_BRANCH" = "main" ]; then
             RELEASE_FLAGS=(--latest)
@@ -349,14 +346,13 @@ jobs:
             echo "Publishing $TAG to $RELEASE_REPO"
 
             if gh release view "$TAG" --repo "$RELEASE_REPO" >/dev/null 2>&1; then
-              gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}.apk" --repo "$RELEASE_REPO" --yes >/dev/null 2>&1 || true
+              gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}-arm64-v8a.apk" --repo "$RELEASE_REPO" --yes >/dev/null 2>&1 || true
+              gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}-arm64-v8a-debug.apk" --repo "$RELEASE_REPO" --yes >/dev/null 2>&1 || true
               gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}-debug.apk" --repo "$RELEASE_REPO" --yes >/dev/null 2>&1 || true
-              gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}-armeabi-v7a.apk" --repo "$RELEASE_REPO" --yes >/dev/null 2>&1 || true
-              gh release delete-asset "$TAG" "Fluxora-v${{ steps.version.outputs.version_name }}-armeabi-v7a-debug.apk" --repo "$RELEASE_REPO" --yes >/dev/null 2>&1 || true
-              gh release upload "$TAG" "$APK_ARM64_PATH" --repo "$RELEASE_REPO" --clobber
+              gh release upload "$TAG" "$APK_PATH" --repo "$RELEASE_REPO" --clobber
             elif [ "$RELEASE_REPO" = "$SOURCE_REPO" ]; then
-              gh release create "$TAG" "$APK_ARM64_PATH" --repo "$RELEASE_REPO" --target "$FLUXORA_SHA" -t "$TITLE" -n "$BODY" "${RELEASE_FLAGS[@]}"
+              gh release create "$TAG" "$APK_PATH" --repo "$RELEASE_REPO" --target "$FLUXORA_SHA" -t "$TITLE" -n "$BODY" "${RELEASE_FLAGS[@]}"
             else
-              gh release create "$TAG" "$APK_ARM64_PATH" --repo "$RELEASE_REPO" --target main -t "$TITLE" -n "$BODY" "${RELEASE_FLAGS[@]}"
+              gh release create "$TAG" "$APK_PATH" --repo "$RELEASE_REPO" --target main -t "$TITLE" -n "$BODY" "${RELEASE_FLAGS[@]}"
             fi
           done
