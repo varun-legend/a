@@ -356,3 +356,42 @@ jobs:
               gh release create "$TAG" "$APK_PATH" --repo "$RELEASE_REPO" --target main -t "$TITLE" -n "$BODY" "${RELEASE_FLAGS[@]}"
             fi
           done
+
+          if [ "$BUILD_TYPE" = "release" ] && [ "$FLUXORA_BRANCH" = "main" ]; then
+            MANIFEST_PATH="$RUNNER_TEMP/fluxora-release/fluxora-latest.json"
+            APK_NAME="$(basename "$APK_PATH")"
+            APK_SIZE="$(stat -c '%s' "$APK_PATH")"
+
+            python3 - "$MANIFEST_PATH" "$TAG" "$APK_NAME" "$APK_SIZE" <<'PY'
+          import json
+          import re
+          import sys
+
+          manifest_path, tag, asset_name, size = sys.argv[1:]
+          if not re.fullmatch(r"v\d+\.\d+\.\d+", tag):
+              raise SystemExit(f"Invalid production release tag: {tag}")
+          if asset_name != f"Fluxora-{tag}.apk":
+              raise SystemExit(f"Unexpected production APK name: {asset_name}")
+
+          manifest = {
+              "version": tag,
+              "assetName": asset_name,
+              "sizeBytes": int(size),
+              "abi": "arm64-v8a",
+          }
+          with open(manifest_path, "w", encoding="utf-8") as output:
+              json.dump(manifest, output, indent=2)
+              output.write("\n")
+          PY
+
+            MANIFEST_SHA="$(gh api "repos/varun-legend/a/contents/fluxora-latest.json?ref=main" --jq '.sha')"
+            if ! printf '%s' "$MANIFEST_SHA" | grep -qE '^[0-9a-f]{40}$'; then
+              echo "ERROR: unable to resolve current Fluxora manifest SHA"
+              exit 1
+            fi
+
+            MANIFEST_CONTENT="$(base64 -w 0 "$MANIFEST_PATH")"
+            gh api --method PUT "repos/varun-legend/a/contents/fluxora-latest.json" --field message="chore(release): update Fluxora manifest to $TAG" --field content="$MANIFEST_CONTENT" --field sha="$MANIFEST_SHA" --field branch=main >/dev/null
+
+            echo "Updated varun-legend/a/fluxora-latest.json for $TAG"
+          fi
