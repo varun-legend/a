@@ -323,17 +323,14 @@ jobs:
             TAG="v${{ steps.version.outputs.version_name }}-${SHORT_SHA}"
             TITLE="🧪 Branch Release ${TAG}"
             BODY="Non-production branch release from ${FLUXORA_BRANCH} at ${FLUXORA_SHA} (code ${{ steps.version.outputs.version_code }}). This is not the production latest release."
-            RELEASE_FLAGS="--prerelease --latest=false"
           elif [ "$BUILD_TYPE" = "debug" ]; then
             TAG="v${{ steps.version.outputs.version_name }}-debug"
             TITLE="🧪 Debug Release ${TAG}"
             BODY="Fluxora debug release ${TAG} (code ${{ steps.version.outputs.version_code }})."
-            RELEASE_FLAGS="--prerelease --latest=false"
           else
             TAG="v${{ steps.version.outputs.version_name }}"
             TITLE="📦 Fluxora Release ${TAG}"
             BODY="Fluxora release ${TAG} (code ${{ steps.version.outputs.version_code }})"
-            RELEASE_FLAGS="--latest"
           fi
 
           APK_ARM64_PATH="${{ steps.find-apk.outputs.apk_arm64_path }}"
